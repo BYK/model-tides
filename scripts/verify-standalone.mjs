@@ -43,7 +43,7 @@ try {
     mkdirSync(bin);
     symlinkSync(command, join(bin, 'model-tides'));
     const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: join(root, 'config'),
-        XDG_DATA_HOME: join(root, 'data'), PATH: `${bin}:${process.env.PATH ?? ''}` };
+        XDG_DATA_HOME: join(root, 'data'), PATH: bin };
     const help = spawnSync('model-tides', ['--help'], { encoding: 'utf8', env, cwd: root, timeout: 20_000 });
     assert.ifError(help.error);
     assert.equal(help.status, 0, help.stderr);
