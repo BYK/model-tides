@@ -1,7 +1,7 @@
 import './model-usage.css';
 import './flow-svg/flow-svg.css';
+import { mountFlowChart } from './flow-chart';
 import { loadGistSnapshot } from './gist-view';
-import { renderWeeklyRows } from './global-view';
 import { setupTheme } from './theme';
 import { donateGistSnapshot } from './donation';
 import { downloadBlob } from './download-image';
@@ -22,12 +22,8 @@ root.innerHTML = `
         </header>
 
         <div class="home-intro"><h1>Unlisted weekly counts</h1></div>
-        <section class="global-card home-graph" aria-labelledby="gist-heading">
-            <h2 id="gist-heading">Model use over time</h2>
-            <p id="gist-status" class="global-status" role="status" aria-live="polite">Loading weekly counts from GitHub…</p>
-            <div id="gist-chart" class="global-chart" role="img" aria-label="Unlisted gist model counts over time"></div>
-            <p class="global-note">Your browser reads this unlisted gist directly from GitHub. Model Tides receives no gist address or counts unless you choose to donate the reviewed counts. Anyone with the link can read the gist, and GitHub retains revisions.</p>
-        </section>
+        <div id="gist-chart" class="home-graph"></div>
+        <p class="global-note">Your browser reads this unlisted gist directly from GitHub. Model Tides receives no gist address or counts unless you choose to donate the reviewed counts. Anyone with the link can read the gist, and GitHub retains revisions.</p>
         <section class="donation-card" id="gist-donate" aria-labelledby="gist-donate-heading" hidden>
             <h2 id="gist-donate-heading">Donate your data</h2>
             <p>Having a gist link does not prove who owns it. Donate only counts from your own history. This creates a new, public personal chart and adds the exact model-week totals below to the community chart; one contribution is enough to make a model-week visible.</p>
@@ -45,8 +41,9 @@ root.innerHTML = `
 `;
 
 setupTheme(root);
-const status = root.querySelector<HTMLElement>('#gist-status')!;
-const chart = root.querySelector<HTMLElement>('#gist-chart')!;
+const chart = mountFlowChart(root.querySelector<HTMLElement>('#gist-chart')!, {
+    title: 'Model use over time', headingLevel: 2, initialStatus: 'Loading weekly counts from GitHub…',
+});
 const source = root.querySelector<HTMLAnchorElement>('#gist-source')!;
 const donationCard = root.querySelector<HTMLElement>('#gist-donate')!;
 const donateConsent = root.querySelector<HTMLInputElement>('#gist-donate-consent')!;
@@ -91,15 +88,14 @@ function showGist(): void {
     donateConsent.checked = false;
     donateButton.disabled = true;
     app.querySelector<HTMLElement>('#gist-legacy-note')!.hidden = true;
-    chart.replaceChildren();
+    chart.setMessage('Loading weekly counts from GitHub…');
     const match = /^#([A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?)\/([0-9a-f]{32})$/.exec(window.location.hash);
     if (!match) {
-        status.textContent = 'Invalid gist address.';
+        chart.setMessage('Invalid gist address.');
         source.hidden = true;
         return;
     }
     const [, owner, id] = match;
-    status.textContent = 'Loading weekly counts from GitHub…';
     source.hidden = true;
     void loadGistSnapshot(owner, id).then(({ snapshot, owner: currentOwner }) => {
         if (version !== current.version) return;
@@ -109,9 +105,9 @@ function showGist(): void {
         const rows = snapshot.weeks.flatMap(({ week, models }) =>
             Object.entries(models).map(([model, count]) => ({ week, model, count })))
             .sort((a, b) => a.week.localeCompare(b.week) || a.model.localeCompare(b.model));
-        renderWeeklyRows(chart, rows, snapshot.version === 1 ? 'legacy' : 'gist');
-        const total = rows.reduce((sum, row) => sum + row.count, 0);
-        status.textContent = `${total.toLocaleString('en-GB')} self-reported ${snapshot.version === 2 ? 'active session-days' : 'earlier model-use events'} across ${snapshot.weeks.length} ${snapshot.weeks.length === 1 ? 'week' : 'weeks'} · unlisted gist by ${currentOwner}`;
+        chart.setData({ rows, source: 'gist', metricVersion: snapshot.version,
+            detail: `across ${snapshot.weeks.length} ${snapshot.weeks.length === 1 ? 'week' : 'weeks'} · unlisted gist by ${currentOwner}` });
+        // The chart summarizes the selected dates. The donation preview always lists all weeks below.
         if (snapshot.version === 2) {
             current.snapshot = snapshot;
             donationCard.hidden = false;
@@ -120,7 +116,7 @@ function showGist(): void {
         } else app.querySelector<HTMLElement>('#gist-legacy-note')!.hidden = false;
     }).catch(() => {
         if (version === current.version) {
-            status.textContent = 'Could not load this weekly-count gist from GitHub. Check the link and connection.';
+            chart.setMessage('Could not load this weekly-count gist from GitHub. Check the link and connection.');
         }
     });
 }

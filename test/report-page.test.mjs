@@ -24,7 +24,8 @@ test('a shared report renders an explorable flow chart from public weekly counts
             getBoundingClientRect() { return { width: 1200, left: 0 }; },
             setPointerCapture() {}, hasPointerCapture() { return true; }, releasePointerCapture() {},
         });
-        const items = Object.fromEntries(['app', 'theme-toggle', 'report-status', 'chart-canvas', 'chart-scroll',
+        const items = Object.fromEntries(['app', 'theme-toggle', 'report-chart', 'chart-heading', 'chart-activity-legend', 'chart-legend-note',
+            'chart-status', 'chart-canvas', 'chart-scroll',
             'chart-message', 'timeline-controls', 'range-start', 'range-end', 'range-selection',
             'from-date', 'to-date', 'range-min-label', 'range-max-label', 'zoom-in', 'zoom-out', 'zoom-reset',
             'model-visibility', 'model-legend', 'show-models', 'report-share', 'share-x', 'share-bluesky',
@@ -32,6 +33,7 @@ test('a shared report renders an explorable flow chart from public weekly counts
             'donate-owner-form', 'donate-owner-key', 'donate-review', 'donate-confirm', 'donate-counts',
             'donate-submit', 'donate-status', 'donate-legacy', 'donation-card', 'donation-result'].map((name) => [name, element()]));
         items.app.querySelector = (selector) => items[selector.slice(1)];
+        items['report-chart'].querySelector = items.app.querySelector;
         items['chart-canvas'].querySelector = (selector) => selector === 'svg.flow-svg' ? {
             getBoundingClientRect: () => ({ width: 1200, left: 0 }),
             viewBox: { baseVal: { width: 1200 } },
@@ -80,19 +82,19 @@ test('a shared report renders an explorable flow chart from public weekly counts
         await new Promise(setImmediate);
         assert.deepEqual(calls.map(({ url }) => url), [`/api/contributions/${id}`, `/api/contributions/${id}/aggregate-status`]);
         assert.equal(calls[0].options.cache, 'no-store');
-        assert.match(items.app.innerHTML, /class="chart-card"/);
-        assert.match(items.app.innerHTML, /class="range-track"/);
+        assert.match(items['report-chart'].innerHTML, /class="chart-card flow-chart"/);
+        assert.match(items['report-chart'].innerHTML, /class="range-track"/);
         assert.doesNotMatch(items.app.innerHTML, /View exact weekly counts|<table/);
         assert.match(items['chart-canvas'].innerHTML, /<svg/);
         assert.doesNotMatch(items['chart-canvas'].innerHTML, /<img src=x/);
         assert.match(items['chart-canvas'].innerHTML, /&lt;img src=x/);
-        assert.match(items['report-status'].textContent, /9 active session-days/);
+        assert.match(items['chart-status'].textContent, /9 active session-days/);
         assert.equal(items['donate-owner-form'].hidden, false);
         assert.match(items.app.innerHTML, /npx model-tides@latest key/);
         assert.match(items.app.innerHTML, /npx model-tides@latest contribute/);
         assert.match(items.app.innerHTML, /If you are not the owner.*try yours/i);
         assert.match(items['chart-canvas'].innerHTML, /class="flow-ribbon flow-inferred"/);
-        assert.match(items.app.innerHTML, /inferred shifts/i);
+        assert.match(items['report-chart'].innerHTML, /inferred shifts/i);
         assert.equal(items['timeline-controls'].hidden, false);
         assert.doesNotMatch(items.app.innerHTML, /href="\/local\/"/);
         assert.equal(new URL(items['share-x'].href).searchParams.get('url'), `https://modeltides.dev/u/${id}`);

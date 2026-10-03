@@ -156,10 +156,7 @@ h1 {
 
 .title-wave { color: var(--accent); font-style: italic; }
 
-.global-card { margin-bottom: 15px; padding: 23px 25px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
-.global-status, .global-note { margin: 12px 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
-.global-chart { min-height: 25px; overflow: hidden; }
-.global-chart svg { display: block; width: 100%; height: auto; max-height: 440px; }
+.global-note { margin: 12px 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 
 .chart-card {
     position: relative;
@@ -181,6 +178,7 @@ h1 {
 
 .chart-heading-row .eyebrow { margin-bottom: 7px; color: var(--muted); }
 h2 { margin-bottom: 0; font-family: 'Iosevka Etoile', serif; font-size: 22px; font-weight: 400; letter-spacing: -0.02em; }
+.chart-status { margin: 0; padding: 0 25px 16px; color: var(--muted); font-size: 11px; }
 .chart-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px 13px; color: var(--muted); font-size: 10px; }
 .text-button { padding: 6px 0; border: 0; background: none; color: var(--accent); font-size: 10px; font-weight: 700; cursor: pointer; }
 .text-button:hover { color: var(--ocean); }
@@ -252,12 +250,8 @@ h2 { margin-bottom: 0; font-family: 'Iosevka Etoile', serif; font-size: 22px; fo
 .copy-command { display: grid; place-items: center; padding: 0; border: 0; background: none; color: var(--muted); cursor: pointer; }
 .copy-command:hover { color: var(--accent); }
 .command-help { margin: 11px 10px 0; color: var(--muted); font-size: 12px; }
-.home-graph { padding: 27px 30px 18px; }
-.home-graph h2 { font-size: 26px; }
-.home-graph .global-status { margin: 10px 0 18px; }
-.home-graph .global-chart { min-height: 300px; }
-.home-graph .global-chart svg { max-height: 520px; }
-.home-graph .global-note { margin: 16px 0 0; }
+.home-graph { margin-bottom: 15px; }
+.home-graph .chart-heading-row h2 { font-size: 26px; }
 .home-footer { padding-top: 27px; color: var(--muted); font-size: 13px; text-align: center; }
 .home-footer a { color: var(--accent); text-decoration: none; }
 .home-footer a:hover { text-decoration: underline; }
@@ -265,7 +259,6 @@ h2 { margin-bottom: 0; font-family: 'Iosevka Etoile', serif; font-size: 22px; fo
 .shared-report-app { width: 100%; max-width: none; padding: 0 0 30px; }
 .shared-report-app .masthead { margin: 0 30px 16px; }
 .shared-report-app .chart-heading-row h1 { margin: 0; font-size: clamp(30px, 3.2vw, 46px); }
-.shared-report-app .report-status { margin: 0; padding: 0 25px 16px; color: var(--muted); font-size: 11px; }
 .shared-report-app .chart-scroll[hidden] { display: none; }
 .report-share { display: flex; flex-wrap: wrap; align-items: center; gap: 11px 22px; padding: 21px 30px 0; }
 .report-share a { color: var(--accent); font-size: 11px; font-weight: 700; text-decoration: none; }
@@ -308,7 +301,6 @@ h2 { margin-bottom: 0; font-family: 'Iosevka Etoile', serif; font-size: 22px; fo
     .shared-report-app { padding: 0 0 30px; }
     .masthead { height: 59px; }
     .theme-toggle { padding: 6px 8px; font-size: 10px; }
-    .global-card { padding: 18px 15px; }
     h1 { font-size: clamp(38px, 11vw, 47px); }
     .chart-heading-row { align-items: flex-start; min-height: 89px; padding: 19px 15px 12px; }
     h2 { font-size: 19px; }
@@ -332,13 +324,11 @@ h2 { margin-bottom: 0; font-family: 'Iosevka Etoile', serif; font-size: 22px; fo
     .command-kind { padding-left: 10px; font-size: 12px; }
     .command-strip code { padding: 0 9px; font-size: 12px; }
     .copy-command svg { width: 19px; height: 19px; }
-    .home-graph { padding: 19px 14px 14px; }
-    .home-graph h2 { font-size: 20px; }
-    .home-graph .global-chart { min-height: 215px; }
+    .home-graph .chart-heading-row h2 { font-size: 20px; }
     .shared-report-app .masthead { margin: 0 16px 12px; }
     .shared-report-app .chart-heading-row { align-items: center; }
     .shared-report-app .chart-heading-row h1 { font-size: clamp(28px, 8vw, 38px); }
-    .shared-report-app .report-status { padding: 0 15px 14px; }
+    .chart-status { padding: 0 15px 14px; }
     .report-share { gap: 8px 15px; padding: 17px 16px 0; }
     .report-footer { padding: 14px 16px; }
     .donation-card { margin: 17px 16px; padding: 17px; }

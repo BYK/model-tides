@@ -1,5 +1,6 @@
 import './model-usage.css';
 import './flow-svg/flow-svg.css';
+import { mountFlowChart } from './flow-chart';
 import { loadGlobalView } from './global-view';
 import { setupTheme } from './theme';
 
@@ -18,12 +19,8 @@ root.innerHTML = `
 
         <div class="home-intro"><h1><span class="title-wave" aria-hidden="true">~</span><span>Your models, over time</span><span class="title-wave" aria-hidden="true">~</span></h1></div>
 
-        <section class="global-card home-graph" aria-labelledby="global-heading">
-            <h2 id="global-heading">Community model tides</h2>
-            <p id="global-status" class="global-status" role="status" aria-live="polite">Loading shared model counts…</p>
-            <div id="global-chart" class="global-chart" role="img" aria-label="Shared model counts over time"></div>
-            <p class="global-note">Self-reported activity · only explicitly donated counts appear. Earlier counts stay separate from active session-days.</p>
-        </section>
+        <div id="global-chart" class="home-graph"></div>
+        <p class="global-note">Self-reported activity · uploaded reports are not verified people. Only explicitly opted-in counts appear; earlier counts stay separate from active session-days.</p>
 
         <section class="home-cta" aria-labelledby="home-cta-heading">
             <h2 id="home-cta-heading">See yours</h2>
@@ -46,9 +43,10 @@ root.innerHTML = `
     </main>
 `;
 
-const chart = root.querySelector<HTMLElement>('#global-chart')!;
-const status = root.querySelector<HTMLElement>('#global-status')!;
-void loadGlobalView(chart, status, null, true);
+const chart = mountFlowChart(root.querySelector<HTMLElement>('#global-chart')!, {
+    title: 'Community model tides', headingLevel: 2, initialStatus: 'Loading shared model counts…',
+});
+void loadGlobalView(chart, true);
 
 const commands = {
     npx: 'npx model-tides@latest upload',
