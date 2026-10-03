@@ -1,4 +1,10 @@
 # Changelog
+## 2.1.0
+
+### Features
+
+- Add Pi history and owner-key access by @BYK in [#24](https://github.com/BYK/model-tides/pull/24)
+
 ## 2.0.0
 
 ### Other Changes
