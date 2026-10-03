@@ -116,7 +116,8 @@ function selectedPaths(root, source) {
             const name = basename(current);
             if (source === 'codex'
                 ? (name.endsWith('.jsonl') || name.endsWith('.jsonl.zst')) && (current === root || name.startsWith('rollout-'))
-                : name.endsWith('.jsonl') && !name.startsWith('agent-') && !current.split(sep).includes('subagents')) paths.push(current);
+                : source === 'pi' ? name.endsWith('.jsonl')
+                    : name.endsWith('.jsonl') && !name.startsWith('agent-') && !current.split(sep).includes('subagents')) paths.push(current);
             continue;
         }
         for (const entry of readdirSync(current, { withFileTypes: true })) {
@@ -389,4 +390,67 @@ export async function scanHistoryActive(source, root) {
         }
     }
     return activeDocument(source, days);
+}
+
+function piHeader(record) {
+    if (record.type !== 'session' || typeof record.id !== 'string' ||
+        !record.id || record.id.length > 256) return null;
+    if (![1, 2, 3].includes(record.version ?? 1)) throw new Error('Unsupported Pi session version.');
+    return record.id;
+}
+
+async function piSessionId(path) {
+    for await (const record of records(path)) return piHeader(record);
+    return null;
+}
+
+export async function scanPiActive(root) {
+    const indexed = [];
+    for (const path of selectedPaths(root, 'pi')) {
+        const id = await piSessionId(path);
+        if (id) indexed.push({ id, path });
+        if (indexed.length > MAX_OBSERVATIONS) throw new Error('Too many sessions.');
+    }
+    indexed.sort((a, b) => a.id.localeCompare(b.id) || a.path.localeCompare(b.path));
+    const days = new Map();
+    const previous = { id: null, seen: new Set() };
+    const total = { observations: 0 };
+    const flush = () => {
+        for (const key of previous.seen) {
+            const [day, model] = key.split('\u0000');
+            recordActivity(days, Date.parse(`${day}T00:00:00Z`), model);
+        }
+        previous.seen.clear();
+        if (days.size > MAX_EVENTS) throw new Error('Too many active days.');
+    };
+    for (const { id, path } of indexed) {
+        if (previous.id !== id) {
+            flush();
+            previous.id = id;
+        }
+        let header = true;
+        for await (const record of records(path)) {
+            if (header) {
+                header = false;
+                if (piHeader(record) !== id) throw new Error('History changed during scan.');
+                continue;
+            }
+            if (record.type !== 'message' || !object(record.message) || record.message.role !== 'assistant') continue;
+            const { provider, model: modelId } = record.message;
+            if (!validModel(provider) || provider.includes('/') || !validModel(modelId)) continue;
+            const model = `${provider}/${modelId}`;
+            const time = record.message.timestamp === undefined ? milliseconds(record.timestamp) : record.message.timestamp;
+            if (!validModel(model) || !Number.isSafeInteger(time) || time < Date.UTC(1999, 11, 27) ||
+                time > Date.now() + 7 * 86_400_000) continue;
+            previous.seen.add(`${new Date(time).toISOString().slice(0, 10)}\u0000${model}`);
+            total.observations++;
+            if (total.observations > MAX_OBSERVATIONS || previous.seen.size > MAX_OBSERVATIONS) {
+                throw new Error('Too many observations.');
+            }
+        }
+    }
+    // Pi persists tree branches and duplicate files. Grouping by session ID
+    // counts each observed model and UTC day once, not selections or background usage.
+    flush();
+    return activeDocument('pi', days);
 }

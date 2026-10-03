@@ -34,6 +34,45 @@ test('discovers supported local histories without following symlinks', () => {
         mkdirSync(join(home, '.codex/sessions'));
         writeFileSync(join(home, '.codex/sessions/rollout-test.jsonl'), '{}\n');
         assert.deepEqual(collectSources(home).map(({ name }) => name), ['OpenCode', 'Codex']);
+        mkdirSync(join(home, '.pi/agent'), { recursive: true });
+        symlinkSync(join(home, '.codex'), join(home, '.pi/agent/sessions'));
+        assert.deepEqual(collectSources(home).map(({ name }) => name), ['OpenCode', 'Codex']);
+        rmSync(join(home, '.pi/agent/sessions'));
+        mkdirSync(join(home, '.pi/agent/sessions/--project--'), { recursive: true });
+        writeFileSync(join(home, '.pi/agent/sessions/--project--/session.jsonl'),
+            JSON.stringify({ type: 'session', id: 'private-pi-id', version: 3 }) + '\n');
+        assert.deepEqual(collectSources(home).map(({ name }) => name), ['OpenCode', 'Codex', 'Pi']);
+    } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('key reveals the saved owner token only after YES on an interactive terminal, without network access', () => {
+    const home = mkdtempSync(join(tmpdir(), 'model-tides-key-'));
+    try {
+        const token = 's'.repeat(43);
+        mkdirSync(join(home, 'model-tides'));
+        writeFileSync(join(home, 'model-tides/contribution.json'), JSON.stringify({
+            id: '0199abcf-22aa-7333-8abc-0123456789ab', token,
+        }), { mode: 0o600 });
+        const preload = join(home, 'terminal.mjs');
+        writeFileSync(preload, `Object.defineProperty(process.stdin, 'isTTY', { value: true });
+Object.defineProperty(process.stdout, 'isTTY', { value: true });
+globalThis.fetch = () => { throw new Error('No network request expected.'); };`);
+        const run = (input, tty) => spawnSync(process.execPath, ['--experimental-strip-types',
+            ...(tty ? ['--import', preload] : []), 'scripts/contribute.mjs', 'key'], {
+            cwd: new URL('../', import.meta.url), encoding: 'utf8', input, timeout: 10_000,
+            env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home },
+        });
+        const redirected = run('YES\n', false);
+        assert.equal(redirected.status, 1);
+        assert.match(redirected.stderr, /interactive terminal/);
+        assert.doesNotMatch(redirected.stdout + redirected.stderr, new RegExp(token));
+        const declined = run('NO\n', true);
+        assert.equal(declined.status, 0, declined.stderr);
+        assert.doesNotMatch(declined.stdout + declined.stderr, new RegExp(token));
+        const confirmed = run('YES\n', true);
+        assert.equal(confirmed.status, 0, confirmed.stderr);
+        assert.match(confirmed.stdout, new RegExp(`Private owner key: ${token}`));
+        assert.doesNotMatch(confirmed.stderr, new RegExp(token));
     } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
@@ -200,7 +239,7 @@ test('help lists every CLI command and its privacy choices without scanning hist
             env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home, HTTPS_PROXY: 'http://127.0.0.1:1' },
         });
         assert.equal(result.status, 0, result.stderr);
-        for (const command of ['upload', 'contribute', 'withdraw', 'share', 'unshare', 'gist', 'link', 'export', 'help']) {
+        for (const command of ['upload', 'contribute', 'withdraw', 'share', 'unshare', 'gist', 'link', 'key', 'export', 'help']) {
             assert.match(result.stdout, new RegExp(`\\b${command}\\b`));
         }
         assert.match(result.stdout, /unlisted, not private/);

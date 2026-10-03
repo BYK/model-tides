@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { brotliCompressSync } from 'node:zlib';
-import { scanHistory, scanHistoryActive, scanOpenCode, scanOpenCodeActive } from './history-scanner.mjs';
+import { scanHistory, scanHistoryActive, scanOpenCode, scanOpenCodeActive, scanPiActive } from './history-scanner.mjs';
 import { parseUsageDocument, MAX_EVENTS, MAX_JSON_BYTES } from '../src/usage-data.ts';
 import { parseDailyDocument } from '../src/daily-usage.ts';
 import { buildWeeklySnapshot, buildActiveWeeklySnapshot, parseOwnedReport } from '../src/weekly-snapshot.ts';
@@ -24,7 +24,7 @@ const directory = (path) => {
 };
 
 function hasHistory(root, source) {
-    if (source !== 'codex' && source !== 'claude-code') throw new TypeError('Unsupported history source.');
+    if (source !== 'codex' && source !== 'claude-code' && source !== 'pi') throw new TypeError('Unsupported history source.');
     if (!directory(root)) return false;
     const pending = [root];
     try {
@@ -35,7 +35,7 @@ function hasHistory(root, source) {
                     if (source !== 'claude-code' || entry.name !== 'subagents') pending.push(join(current, entry.name));
                 } else if (entry.isFile() && (source === 'codex'
                     ? entry.name.startsWith('rollout-') && /\.jsonl(?:\.zst)?$/.test(entry.name)
-                    : entry.name.endsWith('.jsonl') && !entry.name.startsWith('agent-'))) {
+                    : entry.name.endsWith('.jsonl') && (source === 'pi' || !entry.name.startsWith('agent-')))) {
                     return true;
                 }
             }
@@ -60,10 +60,12 @@ export function collectSources(home = homedir()) {
     const opencode = join(home, '.local/share/opencode/opencode.db');
     const codex = join(home, '.codex');
     const claude = join(home, '.claude/projects');
+    const pi = join(home, '.pi/agent/sessions');
     return [
         ...(regular(opencode) ? [{ name: 'OpenCode', path: opencode }] : []),
         ...(hasHistory(codex, 'codex') ? [{ name: 'Codex', path: codex }] : []),
         ...(hasHistory(claude, 'claude-code') ? [{ name: 'Claude Code', path: claude }] : []),
+        ...(hasHistory(pi, 'pi') ? [{ name: 'Pi', path: pi }] : []),
     ];
 }
 
@@ -129,6 +131,7 @@ async function activeDocumentsFromSources(sources, onProgress = () => {}) {
                     case 'OpenCode': return scanOpenCodeActive(source.path);
                     case 'Codex': return await scanHistoryActive('codex', source.path);
                     case 'Claude Code': return await scanHistoryActive('claude-code', source.path);
+                    case 'Pi': return await scanPiActive(source.path);
                     default: throw new TypeError('Unsupported history source.');
                 }
             } catch (error) {
@@ -323,6 +326,7 @@ Usage: model-tides <command> [options]
   unshare                      Hide your personal chart without deleting stored counts
   gist [--input activity.json]  Create an unlisted GitHub gist of weekly counts (requires gh)
   link                         Print your personal chart URL
+  key                          Reveal your local owner key after confirmation on a terminal
   export [--output file.json]  Export daily model activity for offline use
   upload --rotate              Rotate your private replacement key
   upload --delete              Delete your stored report and its aggregate counts
@@ -403,6 +407,18 @@ async function main() {
         if (!owner) throw new Error('No private key file exists for this contribution.');
         console.log(`Public link: https://modeltides.dev/u/${owner.id}`);
         console.log('This link works only while your personal report is shared. Run model-tides share to publish it.');
+        return;
+    }
+    if (args[0] === 'key') {
+        if (args.length !== 1) throw new Error('Usage: model-tides key');
+        if (!process.stdin.isTTY || !process.stdout.isTTY) {
+            throw new Error('Use an interactive terminal to reveal your private owner key.');
+        }
+        const owner = loadCredential();
+        if (!owner) throw new Error('No local private key exists. Upload a personal report first.');
+        if (!await confirm('Reveal your private owner key on this terminal? Anyone who sees it can change your report.')) return;
+        console.log(`Private owner key: ${owner.token}`);
+        console.log('Paste it into the Donate your data form on your personal link. Never put the key in the URL.');
         return;
     }
     if (args[0] === 'contribute' || args[0] === 'withdraw') {

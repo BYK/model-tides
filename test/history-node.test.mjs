@@ -71,6 +71,82 @@ test('Codex repeated rollouts and Claude message updates count each active model
     } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
+test('Pi session trees count dated assistant models once per session and UTC day, without exporting identities or messages', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'tides-pi-history-'));
+    try {
+        const root = join(home, 'sessions');
+        const project = join(root, '--project--');
+        mkdirSync(project, { recursive: true });
+        const when = (day, seconds = 0) => Date.UTC(2026, 8, 28 + day, 0, 0, seconds);
+        const entry = (type, id, parentId, day, fields) => ({ type, id, parentId,
+            timestamp: new Date(when(day)).toISOString(), ...fields });
+        const assistant = (id, parentId, day, provider, model) => entry('message', id, parentId, day, {
+            message: { role: 'assistant', provider, model, timestamp: when(day),
+                content: [{ type: 'text', text: 'private reply' }], usage: { input: 3, output: 2 }, stopReason: 'stop' },
+        });
+        const late = assistant('private-late', 'private-c', 2, 'openai', 'gpt-5-nano');
+        late.message.timestamp = when(1);
+        const first = [
+            { type: 'session', version: 3, id: 'private-session-id', timestamp: new Date(when(0)).toISOString(), cwd: '/private/path' },
+            entry('message', 'private-user', null, 0, { message: { role: 'user', content: 'private prompt' } }),
+            entry('model_change', 'private-select', 'private-user', 0, { provider: 'openai', modelId: 'unused-selected' }),
+            assistant('private-a', 'private-select', 0, 'openai', 'gpt-5'),
+            assistant('private-b', 'private-a', 0, 'openai', 'gpt-5'),
+            assistant('private-c', 'private-b', 1, 'openai', 'gpt-5'),
+            late,
+            assistant('private-branch', 'private-a', 1, 'anthropic', 'claude-sonnet'),
+            entry('usage', 'private-cache', 'private-branch', 2, { provider: 'openai', model: 'cache-model', usage: { output: 5 } }),
+            entry('compaction', 'private-summary', 'private-cache', 2, { summary: 'private transcript', firstKeptEntryId: 'private-a' }),
+        ];
+        writeFileSync(join(project, '2026-09-28_private-session-id.jsonl'), first.map(JSON.stringify).join('\n') + '\n');
+        writeFileSync(join(project, '2026-09-30_duplicate.jsonl'), [...first,
+            assistant('private-reopened', 'private-branch', 2, 'openai', 'gpt-5')].map(JSON.stringify).join('\n') + '\n');
+        writeFileSync(join(project, '2026-09-28_empty.jsonl'), JSON.stringify({ type: 'session', version: 3,
+            id: 'private-other-session', timestamp: new Date(when(1)).toISOString() }) + '\n');
+        const second = [
+            { type: 'session', version: 2, id: 'private-other-session', timestamp: new Date(when(1)).toISOString(), cwd: '/private/other' },
+            assistant('private-d', null, 1, 'openai', 'gpt-5'),
+        ];
+        writeFileSync(join(project, '2026-09-29_private-other-session.jsonl'), second.map(JSON.stringify).join('\n') + '\n');
+        const document = await exportActiveLocalMetadata([source('Pi', root)]);
+        assert.deepEqual(parseDailyDocument(document), { format: 'model-tides-daily', version: 2, source: 'pi', days: [
+            { day: '2026-09-28', models: { 'openai/gpt-5': 1 } },
+            { day: '2026-09-29', models: { 'anthropic/claude-sonnet': 1, 'openai/gpt-5': 2, 'openai/gpt-5-nano': 1 } },
+            { day: '2026-09-30', models: { 'openai/gpt-5': 1 } },
+        ] });
+        assert.deepEqual(snapshotFromDailyDocuments([document]).weeks, [{ week: '2026-09-28', models: {
+            'anthropic/claude-sonnet': 1, 'openai/gpt-5': 4, 'openai/gpt-5-nano': 1,
+        } }]);
+        assert.doesNotMatch(JSON.stringify(document), /private|prompt|reply|transcript|cwd|session|cache-model|unused-selected|timestamp/);
+    } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('Pi ignores only a partial live final record, rejects malformed complete records and symlink roots', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'tides-pi-lines-'));
+    try {
+        const path = join(home, 'session.jsonl');
+        const header = { type: 'session', version: 3, id: 'private-id', cwd: '/private/path', timestamp: at(0) };
+        const assistant = { type: 'message', id: 'private-message', parentId: null, timestamp: at(1), message: {
+            role: 'assistant', provider: 'openai', model: 'gpt-5', timestamp: Date.UTC(2025, 0, 1, 0, 0, 1),
+            content: [{ type: 'text', text: 'private reply' }],
+        } };
+        const prefix = [header, assistant].map(JSON.stringify).join('\n') + '\n';
+        writeFileSync(path, prefix + '{"private transcript":');
+        const scan = (root) => exportActiveLocalMetadata([source('Pi', root)]);
+        assert.deepEqual((await scan(path)).days, [{ day: '2025-01-01', models: { 'openai/gpt-5': 1 } }]);
+        writeFileSync(path, prefix + '{"private transcript":\n');
+        await assert.rejects(scan(path), /Pi has a malformed history record/);
+        writeFileSync(path, [header, assistant, { type: 'usage', provider: 'openai', model: 'unused', timestamp: at(2) }]
+            .map(JSON.stringify).join('\n') + '\n');
+        assert.deepEqual((await scan(path)).days, [{ day: '2025-01-01', models: { 'openai/gpt-5': 1 } }]);
+        const link = join(home, 'linked.jsonl');
+        symlinkSync(path, link);
+        await assert.rejects(scan(link), /Pi could not be read/);
+        writeFileSync(path, JSON.stringify({ ...header, version: 4 }) + '\n');
+        await assert.rejects(scan(path), /Pi could not be read/);
+    } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
 test('daily export rejects exact-time or identity fields and cannot reinterpret v1 event metadata', () => {
     const day = { format: 'model-tides-daily', version: 2, source: 'opencode', days: [
         { day: '2026-09-28', models: { 'openai/gpt-5': 1 } },

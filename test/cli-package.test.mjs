@@ -125,5 +125,28 @@ test('npm package includes only the Node scanner, metadata validator, and comman
             cwd: directory, encoding: 'utf8', env: { ...environment, PATH: '' },
         });
         assert.deepEqual(JSON.parse(readFileSync(compressedExport, 'utf8')).days, JSON.parse(exported).days);
+        rmSync(join(directory, '.codex'), { recursive: true, force: true });
+        const pi = join(directory, '.pi/agent/sessions/--project--');
+        mkdirSync(pi, { recursive: true });
+        writeFileSync(join(pi, '2025-01-01_private-id.jsonl'), [
+            { type: 'session', version: 3, id: 'private-id', cwd: '/private/path', timestamp: '2025-01-01T00:00:00Z' },
+            { type: 'message', id: 'private-message', parentId: null, timestamp: '2025-01-01T00:00:01Z', message: {
+                role: 'assistant', provider: 'openai', model: 'gpt-5', timestamp: Date.UTC(2025, 0, 1, 0, 0, 1),
+                content: [{ type: 'text', text: 'private reply' }],
+            } },
+        ].map(JSON.stringify).join('\n') + '\n');
+        const piExport = join(directory, 'pi-export.json');
+        execFileSync(process.execPath, [bin, 'export', '--output', piExport], {
+            cwd: directory, encoding: 'utf8', env: { ...environment, PATH: '' },
+        });
+        assert.deepEqual(JSON.parse(readFileSync(piExport, 'utf8')), {
+            format: 'model-tides-daily', version: 2, source: 'pi',
+            days: [{ day: '2025-01-01', models: { 'openai/gpt-5': 1 } }],
+        });
+        const piReview = execFileSync(process.execPath, ['--import', interceptor, bin, 'upload', '--input', piExport], {
+            cwd: directory, encoding: 'utf8', input: 'NO\n', env: environment,
+        });
+        assert.match(piReview, /Week of 2024-12-30\s+openai\/gpt-5: 1/);
+        assert.doesNotMatch(piReview, /private-id|private reply|private\/path|Public link:/i);
     } finally { rmSync(directory, { recursive: true, force: true }); }
 });

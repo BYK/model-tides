@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -25,6 +25,19 @@ try {
         db.prepare('INSERT INTO message VALUES (?, ?, ?, ?)').run('private-message-3', 'private-session-id',
             Date.UTC(2026, 8, 29, 11), JSON.stringify({ role: 'assistant', providerID: 'anthropic', modelID: 'claude-sonnet-4-5' }));
     } finally { db.close(); }
+    const pi = join(home, '.pi/agent/sessions/--project--');
+    mkdirSync(pi, { recursive: true });
+    writeFileSync(join(pi, '2026-09-28_private-pi-id.jsonl'), [
+        { type: 'session', version: 3, id: 'private-pi-id', cwd: '/private/path', timestamp: '2026-09-28T08:00:00Z' },
+        { type: 'message', id: 'private-pi-message', parentId: null, timestamp: '2026-09-28T10:00:00Z', message: {
+            role: 'assistant', provider: 'openai', model: 'gpt-5', timestamp: Date.UTC(2026, 8, 28, 10),
+            content: [{ type: 'text', text: 'private Pi reply' }],
+        } },
+        { type: 'message', id: 'private-pi-branch', parentId: null, timestamp: '2026-09-29T10:00:00Z', message: {
+            role: 'assistant', provider: 'anthropic', model: 'claude-haiku-4-5', timestamp: Date.UTC(2026, 8, 29, 10),
+            content: [{ type: 'text', text: 'private Pi reply' }],
+        } },
+    ].map(JSON.stringify).join('\n') + '\n');
 
     const bin = join(root, 'bin');
     mkdirSync(bin);
@@ -35,19 +48,26 @@ try {
     assert.ifError(help.error);
     assert.equal(help.status, 0, help.stderr);
     assert.match(help.stdout, /upload.*contribute.*withdraw/s);
+    assert.match(help.stdout, /key\s+Reveal your local owner key/);
     const bare = spawnSync('model-tides', [], { encoding: 'utf8', env, cwd: root, timeout: 20_000 });
     assert.ifError(bare.error);
     assert.equal(bare.status, 0, bare.stderr);
     assert.match(bare.stdout, /Usage: model-tides/);
+    const redirectedKey = spawnSync('model-tides', ['key'], {
+        encoding: 'utf8', env, cwd: root, input: 'YES\n', timeout: 20_000,
+    });
+    assert.ifError(redirectedKey.error);
+    assert.equal(redirectedKey.status, 1);
+    assert.match(redirectedKey.stderr, /interactive terminal/);
     const output = join(root, 'metadata.json');
     const exported = spawnSync('model-tides', ['export', '--output', output], { encoding: 'utf8', env, cwd: root, timeout: 20_000 });
     assert.ifError(exported.error);
     assert.equal(exported.status, 0, exported.stderr);
     const json = readFileSync(output, 'utf8');
-    assert.deepEqual(JSON.parse(json), { format: 'model-tides-daily', version: 2, source: 'opencode', days: [
-        { day: '2026-09-28', models: { 'openai/gpt-5': 1 } },
-        { day: '2026-09-29', models: { 'anthropic/claude-sonnet-4-5': 1 } },
+    assert.deepEqual(JSON.parse(json), { format: 'model-tides-daily', version: 2, source: 'multiple', days: [
+        { day: '2026-09-28', models: { 'openai/gpt-5': 2 } },
+        { day: '2026-09-29', models: { 'anthropic/claude-haiku-4-5': 1, 'anthropic/claude-sonnet-4-5': 1 } },
     ] });
-    assert.doesNotMatch(json, /private-(?:session|message)|private prompt and reply/);
-    console.log('Standalone help and synthetic read-only SQLite export passed.');
+    assert.doesNotMatch(json, /private-(?:session|message|pi)|private prompt and reply|private Pi reply|\/private\/path/);
+    console.log('Standalone help and synthetic read-only SQLite/Pi export passed.');
 } finally { rmSync(root, { recursive: true, force: true }); }
