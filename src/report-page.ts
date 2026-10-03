@@ -69,9 +69,10 @@ root.innerHTML = `
             <a id="share-bluesky" target="_blank" rel="noopener noreferrer">Post on Bluesky ↗</a>
             <span id="share-status" role="status" aria-live="polite"></span>
         </div>
-        <section class="donation-card" aria-labelledby="donation-heading">
+        <section class="donation-card" aria-labelledby="donation-heading" hidden>
             <h2 id="donation-heading">Donate your data</h2>
-            <p>Only the report owner can add these counts to the community chart. Enter your private owner key to review every stored week. The key stays in this tab and never appears in the URL.</p>
+            <p>Only the report owner can add these counts to the community chart. Run <code>npx model-tides@latest key</code> locally to reveal your saved owner key after confirmation, then enter it below to review every stored week. Or run <code>npx model-tides@latest contribute</code> locally to review and donate from the CLI. The key stays in this tab and never appears in the URL.</p>
+            <p>If you are not the owner of this data, why not <a href="/#home-cta-heading">try yours</a>?</p>
             <p id="donate-legacy" hidden>This older report counts starts and switches. Rescan local history with the current CLI to replace it with active session-days before donating.</p>
             <form id="donate-owner-form"><label for="donate-owner-key">Private owner key</label>
                 <input id="donate-owner-key" type="password" autocomplete="off" spellcheck="false" required />
@@ -80,6 +81,7 @@ root.innerHTML = `
                 <pre id="donate-counts"></pre><button id="donate-submit" type="button">Donate your data</button></div>
             <p id="donate-status" role="status" aria-live="polite"></p>
         </section>
+        <p id="donation-result" class="donation-result" role="status" aria-live="polite" hidden></p>
         <footer class="report-footer"><p>Self-reported weekly model counts; no exact times or tracked switches. Crossing streams pair declines with rises in adjacent weeks (or months when zoomed out). They suggest apparent shifts, not a person's migration. Anyone with this link can view these counts.</p>
             <a href="/">Model Tides home</a> · <a href="https://github.com/BYK/model-tides" target="_blank" rel="noopener noreferrer">Source on GitHub ↗</a></footer>
     </main>`;
@@ -210,7 +212,24 @@ const reviewButton = element<HTMLButtonElement>('#donate-review');
 const donateButton = element<HTMLButtonElement>('#donate-submit');
 const donationStatus = element<HTMLElement>('#donate-status');
 const confirmation = element<HTMLElement>('#donate-confirm');
-const donation = { generation: 0, reviewed: null as null | { token: string; report: Awaited<ReturnType<typeof loadOwnedForDonation>> } };
+const donationCard = element<HTMLElement>('.donation-card');
+const donationResult = element<HTMLElement>('#donation-result');
+const donation = { generation: 0, confirmed: false,
+    reviewed: null as null | { token: string; report: Awaited<ReturnType<typeof loadOwnedForDonation>> } };
+async function loadDonationStatus(): Promise<void> {
+    try {
+        const response = await fetch(`/api/contributions/${id}/aggregate-status`, { cache: 'no-store', credentials: 'omit' });
+        if (!response.ok) throw new Error('Donation status unavailable.');
+        const result: unknown = await response.json();
+        if (result === null || typeof result !== 'object' || Array.isArray(result) ||
+            Object.keys(result).length !== 2 || !('id' in result) || result.id !== id ||
+            !('inAggregate' in result) || typeof result.inAggregate !== 'boolean') {
+            throw new TypeError('Invalid donation status.');
+        }
+        if (result.inAggregate) { donation.generation++; donation.reviewed = null; confirmation.hidden = true; ownerInput.value = ''; }
+        donationCard.hidden = donation.confirmed || result.inAggregate;
+    } catch { donationCard.hidden = donation.confirmed; }
+}
 ownerInput.addEventListener('input', () => { donation.generation++; donation.reviewed = null;
     confirmation.hidden = true; reviewButton.disabled = false; });
 ownerForm.addEventListener('submit', (event) => {
@@ -237,9 +256,15 @@ donateButton.addEventListener('click', () => {
     if (!reviewed || donateButton.disabled) return;
     donateButton.disabled = true;
     void donateOwnedReport(id, reviewed.token, reviewed.report).then(() => {
+        donation.confirmed = true;
+        donation.generation++;
         donation.reviewed = null;
         confirmation.hidden = true;
-        donationStatus.textContent = 'Donated. Your model-week counts now appear on the community chart.';
+        element<HTMLElement>('#donate-counts').textContent = '';
+        ownerInput.value = '';
+        donationCard.hidden = true;
+        donationResult.textContent = 'Donated. Your model-week counts now appear on the community chart.';
+        donationResult.hidden = false;
     }).catch(() => {
         donation.reviewed = null;
         confirmation.hidden = true;
@@ -300,6 +325,7 @@ void (async () => {
     controls.hidden = false;
     timeline.update();
     render();
+    void loadDonationStatus();
 })().catch(() => {
     controls.hidden = true;
     canvas.replaceChildren();
@@ -308,4 +334,5 @@ void (async () => {
     message.textContent = 'This report is hidden or unavailable.';
     status.textContent = 'This report is hidden or unavailable.';
     element<HTMLElement>('.report-share').hidden = true;
+    donationCard.hidden = true;
 });

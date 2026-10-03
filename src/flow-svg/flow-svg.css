@@ -43,23 +43,23 @@
 }
 
 .flow-svg .flow-entry {
-    opacity: 0.34;
+    opacity: var(--flow-entry-opacity, 0.34);
 }
 
 .flow-svg .flow-transition {
-    opacity: 0.3;
+    opacity: var(--flow-transition-opacity, 0.3);
 }
 
 .flow-svg .flow-intra {
-    opacity: 0.58;
+    opacity: var(--flow-intra-opacity, 0.58);
 }
 
 .flow-svg .flow-inferred {
-    opacity: 0.5;
+    opacity: var(--flow-inferred-opacity, 0.5);
 }
 
 .flow-svg .continuity-ribbon {
-    opacity: 0.24;
+    opacity: var(--flow-continuity-opacity, 0.24);
 }
 
 .flow-svg .usage-node {
