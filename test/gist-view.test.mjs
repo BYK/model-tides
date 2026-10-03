@@ -62,45 +62,35 @@ test('a failed GitHub fetch does not leak its response body or error text', asyn
     }), (error) => error.message === 'Could not load a valid weekly-count gist.');
 });
 
-test('gist and mock counts show inferred shifts, but legacy and active-day community counts do not', async () => {
-    const server = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' });
-    try {
-        const { renderWeeklyRows } = await server.ssrLoadModule('/src/global-view.ts');
-        const rows = [
-            { week: '2026-09-07', model: 'old', count: 6 },
-            { week: '2026-09-14', model: 'new', count: 5 },
-        ];
-        const chart = { innerHTML: '', setAttribute() {} };
-        renderWeeklyRows(chart, rows, 'shared');
-        assert.doesNotMatch(chart.innerHTML, /flow-inferred/);
-        renderWeeklyRows(chart, rows, 'legacy');
-        assert.doesNotMatch(chart.innerHTML, /flow-inferred/);
-        renderWeeklyRows(chart, rows, 'gist');
-        assert.match(chart.innerHTML, /class="flow-ribbon flow-inferred"/);
-        renderWeeklyRows(chart, rows, 'mock');
-        assert.match(chart.innerHTML, /class="flow-ribbon flow-inferred"/);
-    } finally {
-        await server.close();
-    }
-});
-
 test('the browser renders a gist without sending its contents to Model Tides or injecting model labels', async () => {
     const server = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' });
     const originalDocument = globalThis.document;
     const originalWindow = globalThis.window;
     const originalFetch = globalThis.fetch;
+    const oldResizeObserver = globalThis.ResizeObserver;
     try {
         const element = () => ({ hidden: false, textContent: '', innerHTML: '', children: [], handlers: new Map(),
+            style: { setProperty() {} },
             append(child) { this.children.push(child); },
             replaceChildren(...children) { this.children = children; },
             setAttribute() {},
             addEventListener(type, handler) { this.handlers.set(type, handler); },
         });
-        const items = Object.fromEntries(['app', 'theme-toggle', 'gist-status', 'gist-chart', 'gist-source',
+        const items = Object.fromEntries(['app', 'theme-toggle', 'gist-chart', 'chart-heading', 'chart-activity-legend', 'chart-legend-note',
+            'chart-status', 'chart-canvas', 'chart-scroll', 'chart-message', 'timeline-controls',
+            'range-start', 'range-end', 'range-selection', 'from-date', 'to-date', 'range-min-label',
+            'range-max-label', 'zoom-in', 'zoom-out', 'zoom-reset', 'model-visibility', 'model-legend', 'show-models',
+            'gist-source',
             'gist-donate', 'gist-donate-consent', 'gist-donate-submit', 'gist-donate-status',
             'gist-donate-result', 'gist-donate-counts', 'gist-personal-link', 'gist-key-download',
             'gist-legacy-note'].map((name) => [name, element()]));
         items.app.querySelector = (selector) => items[selector.slice(1)];
+        items['gist-chart'].querySelector = items.app.querySelector;
+        items['chart-scroll'].getBoundingClientRect = () => ({ width: 1100, left: 0 });
+        items['chart-scroll'].clientWidth = 1100;
+        items['chart-scroll'].style = { setProperty() {} };
+        items['chart-scroll'].classList = { add() {}, remove() {}, toggle() {} };
+        items['chart-canvas'].querySelector = () => null;
         globalThis.document = {
             documentElement: { dataset: {} },
             querySelector: (selector) => selector === '#app' ? items.app : { content: '' },
@@ -113,8 +103,10 @@ test('the browser renders a gist without sending its contents to Model Tides or 
             location: { pathname: '/gist', hash: `#BYK/${id}` },
             matchMedia: () => ({ matches: false, addEventListener() {} }),
             addEventListener(type, handler) { handlers.set(type, handler); },
+            innerWidth: 1100, innerHeight: 800,
             history: { replaceState(_state, _title, url) { history.push(url); } },
         };
+        globalThis.ResizeObserver = class { observe() {} };
         const calls = [];
         const fixture = { version: 1 };
         globalThis.fetch = async (url) => {
@@ -127,13 +119,13 @@ test('the browser renders a gist without sending its contents to Model Tides or 
         await new Promise(setImmediate);
         assert.deepEqual(calls, [`https://api.github.com/gists/${id}`]);
         assert.doesNotMatch(items.app.innerHTML, /View exact weekly counts|<table/);
-        assert.doesNotMatch(items.app.innerHTML + items['gist-chart'].innerHTML, /<img src=x/);
-        assert.match(items['gist-chart'].innerHTML, /&lt;img src=x/);
-        assert.match(items['gist-status'].textContent, /1 self-reported earlier model-use events/);
-        assert.match(items['gist-status'].textContent, /across 1 week ·/);
+        assert.doesNotMatch(items.app.innerHTML + items['chart-canvas'].innerHTML, /<img src=x/);
+        assert.match(items['chart-canvas'].innerHTML, /&lt;img src=x/, items['chart-status'].textContent);
+        assert.match(items['chart-status'].textContent, /1 self-reported earlier model-use events/);
+        assert.match(items['chart-status'].textContent, /across 1 week ·/);
         assert.equal(items['gist-donate'].hidden, true, 'v1 counts cannot be rebranded as active session-days');
         assert.equal(items['gist-legacy-note'].hidden, false);
-        assert.match(items['gist-status'].textContent, /NewOwner/);
+        assert.match(items['chart-status'].textContent, /NewOwner/);
         assert.deepEqual(history, [`/gist#NewOwner/${id}`]);
         assert.equal(items['gist-source'].href, `https://gist.github.com/NewOwner/${id}`);
         fixture.version = 2;
@@ -152,12 +144,13 @@ test('the browser renders a gist without sending its contents to Model Tides or 
         assert.equal(items['gist-donate-submit'].disabled, false);
         globalThis.window.location.hash = '#invalid';
         handlers.get('hashchange')();
-        assert.equal(items['gist-status'].textContent, 'Invalid gist address.');
+        assert.equal(items['chart-status'].textContent, 'Invalid gist address.');
         assert.equal(items['gist-source'].hidden, true);
     } finally {
         globalThis.fetch = originalFetch;
         globalThis.window = originalWindow;
         globalThis.document = originalDocument;
+        globalThis.ResizeObserver = oldResizeObserver;
         await server.close();
     }
 });

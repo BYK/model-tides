@@ -136,7 +136,10 @@ test('personal upload has a working link but never enters aggregate until separa
         assert.match(await page.text(), /<script type="module" src="\/assets\/index-hashed\.js"><\/script>/);
         assert.equal((await worker.fetch(new Request(`https://modeltides.dev/u/${id}`, { method: 'HEAD' }), env)).status, 200);
         const aggregate = await handleContributions(new Request('https://modeltides.dev/api/aggregate'), db, limit, '/api/aggregate');
-        assert.deepEqual((await aggregate.json()).weeks, []);
+        const emptyAggregate = await aggregate.json();
+        assert.deepEqual(emptyAggregate.weeks, []);
+        assert.equal(emptyAggregate.uploadedReports, 1, 'personal uploads count even before opt-in');
+        assert.equal(emptyAggregate.optedInReports, 0);
         const owner = await handleContributions(new Request(`https://modeltides.dev/api/contributions/${id}`, {
             headers: { Authorization: `Bearer ${token}` },
         }), db, limit, `/api/contributions/${id}`);
@@ -148,9 +151,12 @@ test('personal upload has a working link but never enters aggregate until separa
         assert.equal(contribute.status, 200);
         assert.equal((await db.prepare('SELECT in_aggregate FROM contributors WHERE id = ?').bind(id).first()).in_aggregate, 1);
         const visible = await handleContributions(new Request('https://modeltides.dev/api/aggregate'), db, limit, '/api/aggregate');
-        assert.deepEqual((await visible.json()).weeks, [
+        const visibleAggregate = await visible.json();
+        assert.deepEqual(visibleAggregate.weeks, [
             { week: '2026-09-28', model: 'anthropic/claude-sonnet', count: 2, contributors: 1 },
         ], 'one opted-in contributor is visible without a five-ID threshold');
+        assert.equal(visibleAggregate.uploadedReports, 1);
+        assert.equal(visibleAggregate.optedInReports, 1);
         const withdrawPath = `/api/contributions/${id}/withdraw`;
         const withdraw = await handleContributions(new Request(`https://modeltides.dev${withdrawPath}`, {
             method: 'POST', headers: { Authorization: `Bearer ${token}` },
@@ -158,6 +164,10 @@ test('personal upload has a working link but never enters aggregate until separa
         assert.equal(withdraw.status, 200);
         assert.equal((await db.prepare('SELECT in_aggregate FROM contributors WHERE id = ?').bind(id).first()).in_aggregate, 0);
         assert.equal((await getReport(db, id)).total, 2, 'withdrawal retains the personal link and data');
+        const afterWithdrawal = await (await handleContributions(new Request('https://modeltides.dev/api/aggregate'),
+            db, limit, '/api/aggregate')).json();
+        assert.equal(afterWithdrawal.uploadedReports, 1);
+        assert.equal(afterWithdrawal.optedInReports, 0);
         const delayed = await handleContributions(new Request(`https://modeltides.dev${contributePath}`, {
             method: 'POST', headers: { Authorization: `Bearer ${token}`, 'X-Model-Tides-Reviewed-Revision': '0' },
         }), db, limit, contributePath);

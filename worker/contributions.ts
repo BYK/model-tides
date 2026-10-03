@@ -138,18 +138,27 @@ export async function getAggregate(db: Database): Promise<{
     weeks: { week: string; model: string; count: number; contributors: number }[];
     truncated: boolean;
     metricVersion: 1 | 2;
+    uploadedReports: number;
+    optedInReports: number;
 }> {
     const metric = await db.prepare('SELECT MAX(metric_version) AS version FROM contributors WHERE in_aggregate = 1')
         .first<{ version: number | null }>();
     const metricVersion = metric?.version ?? 2;
     if (metricVersion !== 1 && metricVersion !== 2) throw new TypeError('Unknown aggregate metric.');
+    const reportCounts = await db.prepare(`SELECT
+        (SELECT COUNT(*) FROM contributors) AS uploadedReports,
+        (SELECT COUNT(*) FROM contributors WHERE in_aggregate = 1 AND metric_version = ?) AS optedInReports`)
+        .bind(metricVersion).first<{ uploadedReports: number; optedInReports: number }>();
+    if (!reportCounts || !Number.isSafeInteger(reportCounts.uploadedReports) ||
+        !Number.isSafeInteger(reportCounts.optedInReports)) throw new TypeError('Invalid report totals.');
     const { results } = await db.prepare(`SELECT w.week, w.model, SUM(w.count) AS count, COUNT(*) AS contributors
         FROM weekly_counts w JOIN contributors c ON c.id = w.contributor_id
         WHERE c.in_aggregate = 1 AND c.metric_version = ? GROUP BY w.week, w.model
         ORDER BY w.week, w.model LIMIT 3001`).bind(metricVersion).all<{
         week: string; model: string; count: number; contributors: number;
     }>();
-    return { weeks: results.slice(0, 3000), truncated: results.length > 3000, metricVersion };
+    return { weeks: results.slice(0, 3000), truncated: results.length > 3000, metricVersion,
+        uploadedReports: reportCounts.uploadedReports, optedInReports: reportCounts.optedInReports };
 }
 
 export async function handleContributions(

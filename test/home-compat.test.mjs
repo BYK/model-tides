@@ -4,7 +4,8 @@ import { test } from 'node:test';
 
 test('home leads with weekly counts and does not advertise the removed browser import', () => {
     const home = readFileSync(new URL('../src/home.ts', import.meta.url), 'utf8');
-    assert.ok(home.indexOf('global-card home-graph') < home.indexOf('home-cta'));
+    assert.ok(home.indexOf('id="global-chart"') < home.indexOf('home-cta'));
+    assert.match(home, /mountFlowChart/);
     assert.match(home, /id="theme-toggle"/);
     assert.match(home, /id="command-manager"/);
     assert.match(home, /<h2 id="home-cta-heading">See yours<\/h2>/);
