@@ -163,12 +163,17 @@ export async function handleContributions(
     const activeCreatePath = '/api/contributions/personal-v2';
     const donatedCreatePath = '/api/contributions/donate-v2';
     const privateCreatePath = '/api/contributions/private';
-    const match = /^\/api\/contributions\/([^/]+)(\/(?:rotate|share|unshare|contribute|withdraw|migrate-v2))?$/.exec(path);
+    const match = /^\/api\/contributions\/([^/]+)(\/(?:rotate|share|unshare|contribute|withdraw|migrate-v2|aggregate-status))?$/.exec(path);
     if (path !== '/api/contributions' && path !== personalCreatePath && path !== activeCreatePath &&
         path !== donatedCreatePath && path !== privateCreatePath && !match) return response({ error: 'Not found.' }, 404);
     const id = path === personalCreatePath || path === activeCreatePath || path === donatedCreatePath ||
         path === privateCreatePath ? undefined : match?.[1];
     if (id && !contributionId.test(id)) return response({ error: 'Not found.' }, 404);
+    if (id && match?.[2] === '/aggregate-status' && request.method === 'GET') {
+        const row = await db.prepare('SELECT in_aggregate FROM contributors WHERE id = ? AND published = 1')
+            .bind(id).first<{ in_aggregate: number }>();
+        return row ? response({ id, inAggregate: row.in_aggregate === 1 }) : response({ error: 'Not found.' }, 404);
+    }
     if (id && !match?.[2] && request.method === 'GET') {
         const authorization = request.headers.get('Authorization');
         const token = bearer(request);

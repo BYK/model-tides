@@ -369,6 +369,22 @@ test('known providers and model families keep stable colors across model version
     assert.equal(getModelColor('Other models'), OTHER_MODEL_COLOR);
 });
 
+test('adjacent model families use separated colors on a light chart', () => {
+    const distance = (first, second) => {
+        const channels = (color) => [1, 3, 5].map((index) => parseInt(color.slice(index, index + 2), 16));
+        const a = channels(getModelColor(first));
+        const b = channels(getModelColor(second));
+        return Math.hypot(...a.map((value, index) => value - b[index]));
+    };
+    for (const [first, second] of [
+        ['anthropic/claude-opus-4', 'anthropic/claude-sonnet-4'],
+        ['anthropic/claude-sonnet-4', 'anthropic/claude-haiku-4'],
+        ['anthropic/claude-opus-4', 'anthropic/claude-haiku-4'],
+        ['openai/gpt-5', 'openai/gpt-5-codex'],
+        ['openai/gpt-5', 'openai/o3'],
+    ]) assert.ok(distance(first, second) > 60, `${first} and ${second} need visibly distinct colors`);
+});
+
 test('grouped model streams keep their family colors while the aggregate node stays neutral', () => {
     const svg = render([
         { time: january + 86_400_000, to: 'anthropic/claude-opus-4' },

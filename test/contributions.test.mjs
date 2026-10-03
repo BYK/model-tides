@@ -226,6 +226,14 @@ test('gist donation creates an opted-in v2 report with a separate owner key; pub
         const active = { ...snapshot(3), version: 2 };
         const privatePath = '/api/contributions/personal-v2';
         const original = await (await handleContributions(upload(active, privatePath), db, limit, privatePath)).json();
+        const originalPath = `/api/contributions/${original.id}`;
+        const publicReport = () => handleContributions(new Request(`https://modeltides.dev${originalPath}`), db, limit, originalPath);
+        const statusPath = `${originalPath}/aggregate-status`;
+        const publicStatus = () => handleContributions(new Request(`https://modeltides.dev${statusPath}`), db, limit, statusPath);
+        const before = await (await publicReport()).json();
+        assert.equal('inAggregate' in before, false, 'older cached report pages still accept the public response');
+        assert.equal('revision' in before, false, 'the public report does not expose owner revision');
+        assert.deepEqual(await (await publicStatus()).json(), { id: original.id, inAggregate: false });
         const donatePath = '/api/contributions/donate-v2';
         const request = upload(active, donatePath);
         request.headers.set('X-Model-Tides-Report', 'donated-v2');
@@ -254,6 +262,13 @@ test('gist donation creates an opted-in v2 report with a separate owner key; pub
         }), db, limit, noOwnerPath);
         assert.equal(owner.status, 200);
         assert.equal((await (await aggregate()).json()).weeks[0].count, 6);
+        assert.deepEqual(await (await publicStatus()).json(), { id: original.id, inAggregate: true },
+            'a refreshed shared report can hide the donation form');
+        const hiddenPath = `${originalPath}/unshare`;
+        assert.equal((await handleContributions(new Request(`https://modeltides.dev${hiddenPath}`, {
+            method: 'POST', headers: { Authorization: `Bearer ${original.token}` },
+        }), db, limit, hiddenPath)).status, 200);
+        assert.equal((await publicStatus()).status, 404, 'hidden reports never reveal aggregate membership');
     } finally { db.close(); }
 });
 
@@ -364,6 +379,7 @@ test('public report parsing rejects hidden, extra-field, and malformed response 
     const valid = { id, published: true, counts: [{ week: '2026-09-28', model: 'openai/gpt-5', count: 2 }] };
     assert.deepEqual(parsePublicReport(valid, id).weeks, [{ week: '2026-09-28', models: { 'openai/gpt-5': 2 } }]);
     for (const invalid of [{ ...valid, published: false }, { ...valid, token: 'private' },
+        { ...valid, inAggregate: false },
         { ...valid, counts: [{ ...valid.counts[0], model: '<script>', prompt: 'private' }] }]) {
         assert.throws(() => parsePublicReport(invalid, id), TypeError);
     }

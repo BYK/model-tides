@@ -16,7 +16,7 @@ root.innerHTML = `
             <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark theme">Dark theme</button>
         </header>
 
-        <div class="home-intro"><h1>Your models, over time<span class="title-wave" aria-hidden="true"> ~</span></h1></div>
+        <div class="home-intro"><h1><span class="title-wave" aria-hidden="true">~</span><span>Your models, over time</span><span class="title-wave" aria-hidden="true">~</span></h1></div>
 
         <section class="global-card home-graph" aria-labelledby="global-heading">
             <h2 id="global-heading">Community model tides</h2>

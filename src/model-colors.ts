@@ -36,23 +36,23 @@ export function getModelColor(model: string): string {
     const providerTokens = tokenize(provider);
 
     if (hasAny(tokens, 'claude', 'anthropic') || hasAny(providerTokens, 'anthropic')) {
-        if (tokens.has('opus')) return '#c45c2a';
-        if (tokens.has('sonnet')) return '#c37035';
-        if (tokens.has('haiku')) return '#b2802f';
-        return '#d7753b';
+        if (tokens.has('opus')) return '#a63d58';
+        if (tokens.has('sonnet')) return '#c36918';
+        if (tokens.has('haiku')) return '#767f1f';
+        return '#b95535';
     }
 
     if (hasAny(tokens, 'openai', 'gpt', 'chatgpt', 'codex')) {
-        if (tokens.has('codex')) return '#12665e';
-        if (hasAny(tokens, 'o1', 'o3', 'o4')) return '#27877f';
-        if (hasAny(tokens, 'dall', 'image')) return '#58a99b';
-        if (hasAny(tokens, 'embedding', 'embed')) return '#82b99d';
-        return '#167f73';
+        if (tokens.has('codex')) return '#21683b';
+        if (hasAny(tokens, 'o1', 'o3', 'o4')) return '#3a65a9';
+        if (hasAny(tokens, 'dall', 'image')) return '#4b9b79';
+        if (hasAny(tokens, 'embedding', 'embed')) return '#798e35';
+        return '#087a8b';
     }
 
     if (hasAny(tokens, 'gemini') || hasAny(providerTokens, 'google', 'gemini')) {
-        if (tokens.has('flash')) return tokens.has('lite') ? '#69a9b5' : '#4387c7';
-        return '#596bd0';
+        if (tokens.has('flash')) return tokens.has('lite') ? '#348c80' : '#247bbd';
+        return '#6453b1';
     }
 
     if (hasAny(tokens, 'mistral', 'codestral', 'ministral')) {

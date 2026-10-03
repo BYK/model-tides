@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { initWasm, Resvg } from '@resvg/resvg-wasm';
+import { getModelColor } from '../src/model-colors.ts';
 import { imageSvg, pageForReport, summarize } from '../worker/public-pages.ts';
 
 const shell = '<!doctype html><html><head><title>Model Tides</title></head><body><div id="app"></div><script type="module" src="/assets/index-hashed.js"></script></body></html>';
@@ -52,7 +53,7 @@ test('personal OG image is a weighted, full-width weekly flow with safe labels a
     assert.match(svg, /<text[^>]*>14 Sept<\/text>/);
     assert.match(svg, /Other models/);
     assert.match(svg, /#728b93/);
-    assert.match(svg, /#167f73/);
+    assert.match(svg, new RegExp(`class="usage-node"[^>]*fill="${getModelColor('openai/gpt-5')}"`));
     assert.match(svg, /class="usage-node"[^>]*fill="#728b93"[^>]*><title>14 Sept · Other models · 2 self-reported model uses<\/title>/);
     assert.match(svg, /class="flow-ribbon flow-entry"[^>]*fill="#b65f89"/);
     assert.match(svg, /class="flow-ribbon flow-entry"[^>]*fill="#5e7293"/);
