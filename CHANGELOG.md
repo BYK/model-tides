@@ -1,4 +1,13 @@
 # Changelog
+## 2.1.1
+
+### Other Changes
+
+- Record upload context and scan Copilot history by @BYK in [#29](https://github.com/BYK/model-tides/pull/29)
+- Unify model charts and show upload totals by @BYK in [#28](https://github.com/BYK/model-tides/pull/28)
+- Improve donation flow and model colors by @BYK in [#27](https://github.com/BYK/model-tides/pull/27)
+- Pin standalone verification to selected binary by @BYK in [#26](https://github.com/BYK/model-tides/pull/26)
+
 ## 2.1.0
 
 ### Features
