@@ -482,7 +482,9 @@ async function copilotSessionId(path) {
 }
 
 function copilotModel(value) {
-    if (!validModel(value) || ['auto', 'auto_v2', 'hydrafusion'].includes(value.toLowerCase())) return null;
+    if (!validModel(value)) return null;
+    const selected = value.startsWith('github-copilot/') ? value.slice('github-copilot/'.length) : value;
+    if (['auto', 'auto_v2', 'hydrafusion'].includes(selected.toLowerCase())) return null;
     const model = value.startsWith('github-copilot/') ? value : `github-copilot/${value}`;
     return validModel(model) ? model : null;
 }
@@ -513,7 +515,7 @@ export async function scanCopilotActive(root) {
             previous.id = id;
         }
         const childInteractions = new Set();
-        const cursor = { first: true, childSession: false };
+        const cursor = { first: true, ambiguousChild: false };
         for await (const record of records(path)) {
             if (cursor.first) {
                 cursor.first = false;
@@ -522,14 +524,19 @@ export async function scanCopilotActive(root) {
             }
             const data = record.data;
             if (!object(data)) continue;
-            if (record.type === 'user.message' && data.parentAgentTaskId) {
-                cursor.childSession = true;
+            if (record.type === 'user.message') {
+                if (!data.parentAgentTaskId) {
+                    cursor.ambiguousChild = false;
+                    continue;
+                }
                 if (typeof data.interactionId === 'string') childInteractions.add(data.interactionId);
+                else cursor.ambiguousChild = true;
                 if (childInteractions.size > MAX_OBSERVATIONS) throw new Error('Too many observations.');
                 continue;
             }
-            if (record.type !== 'assistant.message' || cursor.childSession &&
-                (typeof data.interactionId !== 'string' || childInteractions.has(data.interactionId))) continue;
+            if (record.type !== 'assistant.message' ||
+                typeof data.interactionId === 'string' && childInteractions.has(data.interactionId) ||
+                typeof data.interactionId !== 'string' && cursor.ambiguousChild) continue;
             const model = copilotModel(data.model);
             const time = milliseconds(record.timestamp);
             if (model === null || time === null || time < Date.UTC(1999, 11, 27) ||

@@ -165,7 +165,13 @@ test('GitHub Copilot CLI, desktop app, and VS Code CLI-backed sessions share one
             { type: 'user.message', timestamp: at(2), data: { content: 'private prompt' } },
             reply(3, 'gpt-5'), reply(4, 'gpt-5'), reply(86_403, 'gpt-5'),
             { type: 'user.message', timestamp: at(86_404), data: { interactionId: 'child', parentAgentTaskId: 'private-task' } },
-            reply(86_405, 'claude-haiku', 'child'), reply(86_406, 'auto'), reply(86_407, 'claude-sonnet-4.5'),
+            reply(86_405, 'claude-haiku', 'child'), reply(86_406, 'auto'),
+            reply(86_407, 'github-copilot/auto'), reply(86_408, 'claude-sonnet-4.5'),
+            { type: 'assistant.message', timestamp: at(2 * 86_400), data: { model: 'gpt-5-nano', content: 'private main reply' } },
+            { type: 'user.message', timestamp: at(2 * 86_400 + 1), data: { parentAgentTaskId: 'unidentified-child' } },
+            { type: 'assistant.message', timestamp: at(2 * 86_400 + 2), data: { model: 'skip-child' } },
+            { type: 'user.message', timestamp: at(2 * 86_400 + 3), data: { content: 'main user reply' } },
+            { type: 'assistant.message', timestamp: at(2 * 86_400 + 4), data: { model: 'claude-opus-4.6' } },
         ];
         writeFileSync(join(first, 'events.jsonl'), entries.map(JSON.stringify).join('\n') + '\n');
         writeFileSync(join(copy, 'events.jsonl'), [start, reply(3, 'gpt-5')].map(JSON.stringify).join('\n') + '\n');
@@ -174,6 +180,7 @@ test('GitHub Copilot CLI, desktop app, and VS Code CLI-backed sessions share one
         assert.deepEqual(parseDailyDocument(daily).days, [
             { day: '2025-01-01', models: { 'github-copilot/gpt-5': 1 } },
             { day: '2025-01-02', models: { 'github-copilot/claude-sonnet-4.5': 1, 'github-copilot/gpt-5': 1 } },
+            { day: '2025-01-03', models: { 'github-copilot/claude-opus-4.6': 1, 'github-copilot/gpt-5-nano': 1 } },
         ]);
         assert.doesNotMatch(JSON.stringify(daily), /private|prompt|reply|sessionId|selected|timestamp|auto/);
         assert.deepEqual((await scanCopilotActive(root)).days, daily.days);
