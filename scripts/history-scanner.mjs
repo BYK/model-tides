@@ -1,5 +1,5 @@
 /** Local-only history extraction. Only model names and times leave these readers. */
-import { createReadStream, lstatSync, readdirSync } from 'node:fs';
+import { createReadStream, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { basename, join, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createZstdDecompress } from 'node:zlib';
@@ -126,6 +126,22 @@ function selectedPaths(root, source) {
         }
     }
     return paths.filter((path) => !path.endsWith('.zst') || !file(path.slice(0, -4))).sort();
+}
+
+function copilotPaths(root) {
+    if (file(root)) {
+        if (basename(root) !== 'events.jsonl') throw new Error('Expected a Copilot events.jsonl file.');
+        return [root];
+    }
+    if (!lstatSync(root).isDirectory()) throw new Error('History path must be a regular file or directory.');
+    const paths = [];
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const path = join(root, entry.name, 'events.jsonl');
+        if (file(path)) paths.push(path);
+        if (paths.length > MAX_OBSERVATIONS) throw new Error('Too many sessions.');
+    }
+    return paths.sort();
 }
 
 function parseLine(line, allowIncomplete = false) {
@@ -453,4 +469,224 @@ export async function scanPiActive(root) {
     // counts each observed model and UTC day once, not selections or background usage.
     flush();
     return activeDocument('pi', days);
+}
+
+function copilotHeader(record) {
+    const id = record.type === 'session.start' && object(record.data) && record.data.sessionId;
+    return typeof id === 'string' && id.length > 0 && id.length <= 256 ? id : null;
+}
+
+async function copilotSessionId(path) {
+    for await (const record of records(path)) return copilotHeader(record);
+    return null;
+}
+
+function copilotModel(value) {
+    if (!validModel(value)) return null;
+    const selected = value.startsWith('github-copilot/') ? value.slice('github-copilot/'.length) : value;
+    if (['auto', 'auto_v2', 'hydrafusion'].includes(selected.toLowerCase())) return null;
+    const model = value.startsWith('github-copilot/') ? value : `github-copilot/${value}`;
+    return validModel(model) ? model : null;
+}
+
+export async function scanCopilotActive(root) {
+    // CLI, the Copilot desktop app and VS Code CLI-backed sessions use the
+    // same session-state directory. Index headers, then group by durable ID.
+    const indexed = [];
+    for (const path of copilotPaths(root)) {
+        const id = await copilotSessionId(path);
+        if (id) indexed.push({ id, path });
+    }
+    indexed.sort((a, b) => a.id.localeCompare(b.id) || a.path.localeCompare(b.path));
+    const days = new Map();
+    const previous = { id: null, seen: new Set() };
+    const total = { observations: 0 };
+    const flush = () => {
+        for (const key of previous.seen) {
+            const [day, model] = key.split('\u0000');
+            recordActivity(days, Date.parse(`${day}T00:00:00Z`), model);
+        }
+        previous.seen.clear();
+        if (days.size > MAX_EVENTS) throw new Error('Too many active days.');
+    };
+    for (const { id, path } of indexed) {
+        if (previous.id !== id) {
+            flush();
+            previous.id = id;
+        }
+        const childInteractions = new Set();
+        const cursor = { first: true, ambiguousChild: false };
+        for await (const record of records(path)) {
+            if (cursor.first) {
+                cursor.first = false;
+                if (copilotHeader(record) !== id) throw new Error('History changed during scan.');
+                continue;
+            }
+            const data = record.data;
+            if (!object(data)) continue;
+            if (record.type === 'user.message') {
+                if (!data.parentAgentTaskId) {
+                    cursor.ambiguousChild = false;
+                    continue;
+                }
+                if (typeof data.interactionId === 'string') childInteractions.add(data.interactionId);
+                else cursor.ambiguousChild = true;
+                if (childInteractions.size > MAX_OBSERVATIONS) throw new Error('Too many observations.');
+                continue;
+            }
+            if (record.type !== 'assistant.message' ||
+                typeof data.interactionId === 'string' && childInteractions.has(data.interactionId) ||
+                typeof data.interactionId !== 'string' && cursor.ambiguousChild) continue;
+            const model = copilotModel(data.model);
+            const time = milliseconds(record.timestamp);
+            if (model === null || time === null || time < Date.UTC(1999, 11, 27) ||
+                time > Date.now() + 7 * 86_400_000) continue;
+            previous.seen.add(`${new Date(time).toISOString().slice(0, 10)}\u0000${model}`);
+            total.observations++;
+            if (total.observations > MAX_OBSERVATIONS || previous.seen.size > MAX_OBSERVATIONS ||
+                childInteractions.size > MAX_OBSERVATIONS) throw new Error('Too many observations.');
+        }
+    }
+    flush();
+    return activeDocument('github-copilot', days);
+}
+
+function vscodeChatPaths(roots) {
+    const paths = [];
+    const addChatFiles = (directory) => {
+        if (!directoryFile(directory)) return;
+        const names = readdirSync(directory, { withFileTypes: true });
+        const logs = new Set(names.filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
+            .map((entry) => entry.name.slice(0, -1)));
+        for (const entry of names) {
+            if (!entry.isFile() || !/\.jsonl?$/.test(entry.name) ||
+                entry.name.endsWith('.json') && logs.has(entry.name)) continue;
+            paths.push(join(directory, entry.name));
+            if (paths.length > MAX_OBSERVATIONS) throw new Error('Too many sessions.');
+        }
+    };
+    for (const root of Array.isArray(roots) ? roots : [roots]) {
+        if (!directoryFile(root)) continue;
+        addChatFiles(join(root, 'globalStorage/emptyWindowChatSessions'));
+        const storage = join(root, 'workspaceStorage');
+        if (!directoryFile(storage)) continue;
+        for (const entry of readdirSync(storage, { withFileTypes: true })) {
+            if (entry.isDirectory()) addChatFiles(join(storage, entry.name, 'chatSessions'));
+        }
+    }
+    return paths.sort();
+}
+
+function directoryFile(path) {
+    try { return lstatSync(path).isDirectory(); } catch { return false; }
+}
+
+function vscodeRequest(raw) {
+    if (!object(raw)) return {};
+    return { model: raw.modelId, timestamp: raw.timestamp, responseTimestamp: raw.responseTimestamp,
+        state: raw.modelState?.value, hasResponse: Array.isArray(raw.response) && raw.response.length > 0,
+        promptTokens: raw.promptTokens, completionTokens: raw.completionTokens };
+}
+
+function vscodeSessionState(raw) {
+    const requests = Array.isArray(raw?.requests) ? raw.requests : [];
+    if (requests.length > MAX_OBSERVATIONS) throw new Error('Too many observations.');
+    return { id: raw?.sessionId, responder: raw?.responderUsername, requests: requests.map(vscodeRequest) };
+}
+
+function vscodeUpdate(state, entry) {
+    if (entry.kind === 0) return vscodeSessionState(entry.v);
+    if (![1, 2, 3].includes(entry.kind) || !Array.isArray(entry.k)) throw new Error('Unsupported VS Code chat log entry.');
+    const [field, index, property, nested] = entry.k;
+    if (field === 'responderUsername' && entry.kind === 1 && entry.k.length === 1) {
+        state.responder = entry.v;
+    } else if (field === 'requests') {
+        if (entry.k.length === 1) {
+            if (entry.kind === 1) {
+                if (Array.isArray(entry.v) && entry.v.length > MAX_OBSERVATIONS) throw new Error('Too many observations.');
+                state.requests = Array.isArray(entry.v) ? entry.v.map(vscodeRequest) : [];
+            }
+            if (entry.kind === 2) {
+                if (entry.i !== undefined) {
+                    if (!Number.isSafeInteger(entry.i) || entry.i < 0 || entry.i > state.requests.length) throw new Error('Invalid VS Code chat log.');
+                    state.requests.length = entry.i;
+                }
+                if (Array.isArray(entry.v)) {
+                    if (state.requests.length + entry.v.length > MAX_OBSERVATIONS) throw new Error('Too many observations.');
+                    for (const request of entry.v) state.requests.push(vscodeRequest(request));
+                }
+            }
+        } else if (Number.isSafeInteger(index) && index >= 0 && index < state.requests.length) {
+            if (entry.k.length === 2 && entry.kind === 1) state.requests[index] = vscodeRequest(entry.v);
+            else if (entry.k.length === 3) {
+                const request = state.requests[index];
+                if (property === 'modelId') request.model = entry.kind === 1 ? entry.v : null;
+                if (property === 'responseTimestamp' || property === 'timestamp') request[property] = entry.kind === 1 ? entry.v : null;
+                if (property === 'modelState') request.state = entry.kind === 1 ? entry.v?.value : null;
+                if (property === 'response') request.hasResponse = entry.kind === 2 ?
+                    Array.isArray(entry.v) && entry.v.length > 0 :
+                    entry.kind === 1 && Array.isArray(entry.v) && entry.v.length > 0;
+                if (property === 'promptTokens' || property === 'completionTokens') {
+                    request[property] = entry.kind === 1 ? entry.v : null;
+                }
+            } else if (entry.k.length === 4 && property === 'modelState' && nested === 'value') {
+                state.requests[index].state = entry.kind === 1 ? entry.v : null;
+            } else if (entry.k.length === 4 && property === 'response' && entry.kind === 2) {
+                state.requests[index].hasResponse ||= Array.isArray(entry.v) && entry.v.length > 0;
+            }
+        }
+    }
+    return state;
+}
+
+async function vscodeSession(path) {
+    if (path.endsWith('.json')) {
+        if (statSync(path).size > MAX_LINE_BYTES) throw new Error('Oversized history record.');
+        const data = JSON.parse(readFileSync(path, 'utf8'));
+        return vscodeSessionState(data);
+    }
+    const state = { id: null, responder: null, requests: [] };
+    let current = state;
+    for await (const record of records(path)) current = vscodeUpdate(current, record);
+    return current;
+}
+
+export async function scanVSCodeCopilotActive(roots) {
+    const indexed = [];
+    for (const path of vscodeChatPaths(roots)) {
+        const state = await vscodeSession(path);
+        if (typeof state.id === 'string' && state.id.length > 0 && state.id.length <= 256) indexed.push({ id: state.id, path });
+    }
+    indexed.sort((a, b) => a.id.localeCompare(b.id) || a.path.localeCompare(b.path));
+    const days = new Map();
+    const previous = { id: null, seen: new Set() };
+    const flush = () => {
+        for (const key of previous.seen) {
+            const [day, model] = key.split('\u0000');
+            recordActivity(days, Date.parse(`${day}T00:00:00Z`), model);
+        }
+        previous.seen.clear();
+        if (days.size > MAX_EVENTS) throw new Error('Too many active days.');
+    };
+    for (const { id, path } of indexed) {
+        if (id !== previous.id) {
+            flush();
+            previous.id = id;
+        }
+        const state = await vscodeSession(path);
+        if (state.id !== id) throw new Error('History changed during scan.');
+        if (state.responder !== 'GitHub Copilot') continue;
+        for (const request of state.requests) {
+            if (request.state !== 1 || !(request.hasResponse || Number(request.promptTokens) > 0 ||
+                Number(request.completionTokens) > 0)) continue;
+            const model = copilotModel(request.model);
+            const time = request.responseTimestamp ?? request.timestamp;
+            if (model === null || !Number.isSafeInteger(time) || time < Date.UTC(1999, 11, 27) ||
+                time > Date.now() + 7 * 86_400_000) continue;
+            previous.seen.add(`${new Date(time).toISOString().slice(0, 10)}\u0000${model}`);
+            if (previous.seen.size > MAX_OBSERVATIONS) throw new Error('Too many observations.');
+        }
+    }
+    flush();
+    return activeDocument('vscode-copilot', days);
 }

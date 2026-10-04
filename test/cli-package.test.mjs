@@ -11,6 +11,7 @@ import test from 'node:test';
 import { parseDailyDocument } from '../src/daily-usage.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+const isolatedEnvironment = { ...process.env, CODEX_HOME: '', CLAUDE_CONFIG_DIR: '', COPILOT_HOME: '' };
 
 test('npm package includes only the Node scanner, metadata validator, and command, without Python or the app', async () => {
     const app = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -44,7 +45,7 @@ test('npm package includes only the Node scanner, metadata validator, and comman
         writeFileSync(interceptor, 'globalThis.fetch = () => { throw new Error("Unexpected network request before consent."); };');
         const review = execFileSync('node', ['--import', interceptor, bin, 'upload', '--input', file], {
             cwd: directory, encoding: 'utf8', input: 'NO\n',
-            env: { ...process.env, HOME: directory, XDG_CONFIG_HOME: directory },
+            env: { ...isolatedEnvironment, HOME: directory, XDG_CONFIG_HOME: directory },
         });
         assert.match(review, /Week of 2026-09-28\s+openai\/gpt-5: 1/);
         assert.match(review, /Type YES to confirm/);
@@ -60,7 +61,7 @@ test('npm package includes only the Node scanner, metadata validator, and comman
             return Response.json({ id: '${id}', token: '${token}', published: true, inAggregate: false, metricVersion: 2,
                 url: 'https://modeltides.dev/u/${id}' }, { status: 201 });
         };`);
-        const environment = { ...process.env, HOME: directory, XDG_CONFIG_HOME: join(directory, 'config') };
+        const environment = { ...isolatedEnvironment, HOME: directory, XDG_CONFIG_HOME: join(directory, 'config') };
         const uploaded = execFileSync('node', ['--import', interceptor, bin, 'upload', '--input', file], {
             cwd: directory, encoding: 'utf8', input: 'YES\n', env: environment,
         });
@@ -109,7 +110,7 @@ test('npm package includes only the Node scanner, metadata validator, and comman
         ].map(JSON.stringify).join('\n') + '\n');
         const exportPath = join(directory, 'export.json');
         const saved = execFileSync('node', [bin, 'export', '--output', exportPath], {
-            cwd: directory, encoding: 'utf8', env: { ...process.env, HOME: directory, XDG_CONFIG_HOME: directory },
+            cwd: directory, encoding: 'utf8', env: { ...isolatedEnvironment, HOME: directory, XDG_CONFIG_HOME: directory },
         });
         assert.match(saved, /Use --input to review weekly counts locally before sharing/);
         const exported = readFileSync(exportPath, 'utf8');
@@ -148,5 +149,28 @@ test('npm package includes only the Node scanner, metadata validator, and comman
         });
         assert.match(piReview, /Week of 2024-12-30\s+openai\/gpt-5: 1/);
         assert.doesNotMatch(piReview, /private-id|private reply|private\/path|Public link:/i);
+        rmSync(join(directory, '.pi'), { recursive: true, force: true });
+        const copilot = join(directory, '.copilot/session-state/fixture');
+        mkdirSync(copilot, { recursive: true });
+        writeFileSync(join(copilot, 'events.jsonl'), [
+            { type: 'session.start', data: { sessionId: 'private-copilot-session', selectedModel: 'auto' }, timestamp: '2025-01-01T00:00:00Z' },
+            { type: 'assistant.message', data: { model: 'gpt-5', content: 'private reply' }, timestamp: '2025-01-01T00:00:01Z' },
+        ].map(JSON.stringify).join('\n') + '\n');
+        const vscode = join(directory, 'config/Code/User/globalStorage/emptyWindowChatSessions');
+        mkdirSync(vscode, { recursive: true });
+        writeFileSync(join(vscode, 'private.json'), JSON.stringify({ version: 3, sessionId: 'private-vscode',
+            responderUsername: 'GitHub Copilot', requests: [{ timestamp: Date.UTC(2025, 0, 1, 0, 0, 2),
+                modelId: 'claude-sonnet-4.5', modelState: { value: 1 }, response: ['private reply'] }] }));
+        const copilotExport = join(directory, 'copilot-export.json');
+        execFileSync(process.execPath, [bin, 'export', '--output', copilotExport], {
+            cwd: directory, encoding: 'utf8', env: { ...environment, PATH: '' },
+        });
+        assert.deepEqual(JSON.parse(readFileSync(copilotExport, 'utf8')), {
+            format: 'model-tides-daily', version: 2, source: 'multiple',
+            days: [{ day: '2025-01-01', models: {
+                'github-copilot/claude-sonnet-4.5': 1, 'github-copilot/gpt-5': 1,
+            } }],
+        });
+        assert.doesNotMatch(readFileSync(copilotExport, 'utf8'), /private|reply|session|selectedModel|timestamp/);
     } finally { rmSync(directory, { recursive: true, force: true }); }
 });

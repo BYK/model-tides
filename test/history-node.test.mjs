@@ -8,6 +8,7 @@ import { Readable } from 'node:stream';
 import test from 'node:test';
 import { createZstdCompress } from 'node:zlib';
 import { exportLocal, exportLocalMetadata, exportActiveLocalMetadata, snapshotFromDailyDocuments } from '../scripts/contribute.mjs';
+import { scanCopilotActive, scanVSCodeCopilotActive } from '../scripts/history-scanner.mjs';
 import { parseDailyDocument } from '../src/daily-usage.ts';
 
 const at = (seconds) => new Date(Date.UTC(2025, 0, 1) + seconds * 1000).toISOString();
@@ -144,6 +145,91 @@ test('Pi ignores only a partial live final record, rejects malformed complete re
         await assert.rejects(scan(link), /Pi could not be read/);
         writeFileSync(path, JSON.stringify({ ...header, version: 4 }) + '\n');
         await assert.rejects(scan(path), /Pi could not be read/);
+    } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('GitHub Copilot CLI, desktop app, and VS Code CLI-backed sessions share one activity count', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'tides-copilot-history-'));
+    try {
+        const root = join(home, 'session-state');
+        const first = join(root, 'first');
+        const copy = join(root, 'copy');
+        const empty = join(root, 'empty');
+        for (const path of [first, copy, empty]) mkdirSync(path, { recursive: true });
+        const start = { type: 'session.start', timestamp: at(0), data: { sessionId: 'private-session-id',
+            selectedModel: 'auto', context: { cwd: '/private/path' } } };
+        const reply = (seconds, model, interactionId = 'main') => ({ type: 'assistant.message',
+            timestamp: at(seconds), data: { model, interactionId, content: 'private reply', messageId: 'private-message-id' } });
+        const entries = [start,
+            { type: 'session.model_change', timestamp: at(1), data: { selectedModel: 'unused-selected' } },
+            { type: 'user.message', timestamp: at(2), data: { content: 'private prompt' } },
+            reply(3, 'gpt-5'), reply(4, 'gpt-5'), reply(86_403, 'gpt-5'),
+            { type: 'user.message', timestamp: at(86_404), data: { interactionId: 'child', parentAgentTaskId: 'private-task' } },
+            reply(86_405, 'claude-haiku', 'child'), reply(86_406, 'auto'),
+            reply(86_407, 'github-copilot/auto'), reply(86_408, 'claude-sonnet-4.5'),
+            { type: 'assistant.message', timestamp: at(2 * 86_400), data: { model: 'gpt-5-nano', content: 'private main reply' } },
+            { type: 'user.message', timestamp: at(2 * 86_400 + 1), data: { parentAgentTaskId: 'unidentified-child' } },
+            { type: 'assistant.message', timestamp: at(2 * 86_400 + 2), data: { model: 'skip-child' } },
+            { type: 'user.message', timestamp: at(2 * 86_400 + 3), data: { content: 'main user reply' } },
+            { type: 'assistant.message', timestamp: at(2 * 86_400 + 4), data: { model: 'claude-opus-4.6' } },
+        ];
+        writeFileSync(join(first, 'events.jsonl'), entries.map(JSON.stringify).join('\n') + '\n');
+        writeFileSync(join(copy, 'events.jsonl'), [start, reply(3, 'gpt-5')].map(JSON.stringify).join('\n') + '\n');
+        writeFileSync(join(empty, 'events.jsonl'), JSON.stringify(start) + '\n');
+        const daily = await exportActiveLocalMetadata([source('GitHub Copilot', root)]);
+        assert.deepEqual(parseDailyDocument(daily).days, [
+            { day: '2025-01-01', models: { 'github-copilot/gpt-5': 1 } },
+            { day: '2025-01-02', models: { 'github-copilot/claude-sonnet-4.5': 1, 'github-copilot/gpt-5': 1 } },
+            { day: '2025-01-03', models: { 'github-copilot/claude-opus-4.6': 1, 'github-copilot/gpt-5-nano': 1 } },
+        ]);
+        assert.doesNotMatch(JSON.stringify(daily), /private|prompt|reply|sessionId|selected|timestamp|auto/);
+        assert.deepEqual((await scanCopilotActive(root)).days, daily.days);
+        writeFileSync(join(first, 'events.jsonl'), entries.map(JSON.stringify).join('\n') + '\n{"private transcript":');
+        assert.deepEqual((await scanCopilotActive(root)).days, daily.days);
+        writeFileSync(join(first, 'events.jsonl'), entries.map(JSON.stringify).join('\n') + '\n{"private transcript":\n');
+        await assert.rejects(scanCopilotActive(root), /history record is malformed/);
+        rmSync(join(first, 'events.jsonl'));
+        symlinkSync(join(copy, 'events.jsonl'), join(first, 'events.jsonl'));
+        assert.deepEqual((await scanCopilotActive(root)).days, [{ day: '2025-01-01', models: { 'github-copilot/gpt-5': 1 } }]);
+    } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('VS Code built-in Copilot Chat uses completed local requests, not drafts or auto model selections', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'tides-vscode-history-'));
+    try {
+        const root = join(home, 'Code/User');
+        const workspace = join(root, 'workspaceStorage/fixture/chatSessions');
+        const emptyWindow = join(root, 'globalStorage/emptyWindowChatSessions');
+        mkdirSync(workspace, { recursive: true });
+        mkdirSync(emptyWindow, { recursive: true });
+        const request = (seconds, model, state = 1) => ({ requestId: `private-request-${seconds}`,
+            timestamp: Date.UTC(2026, 8, 28, 0, 0, seconds), modelId: model,
+            modelState: { value: state }, responseTimestamp: Date.UTC(2026, 8, 28, 0, 0, seconds + 1),
+            response: [{ value: 'private reply' }], message: 'private prompt',
+        });
+        const initial = { version: 3, sessionId: 'private-session', responderUsername: 'GitHub Copilot',
+            requests: [request(1, 'gpt-5'), request(2, 'auto'), request(3, 'unused-selected', 0)],
+            inputState: { selectedModel: 'unused-draft' }, workingDirectory: '/private/path' };
+        const ops = [{ kind: 0, v: initial },
+            { kind: 1, k: ['requests', 2, 'modelId'], v: 'claude-sonnet-4.5' },
+            { kind: 1, k: ['requests', 2, 'modelState'], v: { value: 1 } },
+            { kind: 2, k: ['requests'], v: [request(4, 'gpt-5')] },
+            { kind: 2, k: ['requests'], i: 3 },
+        ];
+        writeFileSync(join(workspace, 'private-session.jsonl'), ops.map(JSON.stringify).join('\n') + '\n');
+        writeFileSync(join(emptyWindow, 'private-copy.json'), JSON.stringify({ ...initial, requests: [request(1, 'gpt-5')] }));
+        writeFileSync(join(emptyWindow, 'private-uncertain.json'), JSON.stringify({ ...initial, sessionId: 'uncertain',
+            responderUsername: 'Other Agent', requests: [request(5, 'gpt-5')] }));
+        writeFileSync(join(emptyWindow, 'cross-midnight.json'), JSON.stringify({ ...initial, sessionId: 'cross-midnight',
+            requests: [{ ...request(5, 'gpt-5-nano'), timestamp: Date.UTC(2026, 8, 28, 23, 59, 59),
+                responseTimestamp: Date.UTC(2026, 8, 29) }] }));
+        const daily = await scanVSCodeCopilotActive([root]);
+        assert.deepEqual(daily.days, [
+            { day: '2026-09-28', models: { 'github-copilot/claude-sonnet-4.5': 1, 'github-copilot/gpt-5': 1 } },
+            { day: '2026-09-29', models: { 'github-copilot/gpt-5-nano': 1 } },
+        ]);
+        assert.doesNotMatch(JSON.stringify(daily), /private|prompt|reply|selected|sessionId|2026-09-28T/);
+        assert.deepEqual((await exportActiveLocalMetadata([source('VS Code Copilot Chat', [root])])).days, daily.days);
     } finally { rmSync(home, { recursive: true, force: true }); }
 });
 

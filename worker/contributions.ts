@@ -7,7 +7,7 @@ const storedLimitTrigger = 'MODEL_TIDES_STORED_REPORT_LIMIT';
 const maxD1Parameters = 100;
 
 export interface Statement {
-    bind(...values: (string | number)[]): Statement;
+    bind(...values: (string | number | null)[]): Statement;
     first<T>(): Promise<T | null>;
     all<T>(): Promise<{ results: T[] }>;
     run(): Promise<{ meta: { changes: number } }>;
@@ -26,6 +26,19 @@ const compressedLimit = 64 * 1024;
 const expandedLimit = 512 * 1024;
 const contributionId = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const tokenPattern = /^Bearer ([A-Za-z0-9_-]{43})$/;
+const uploadOS = ['linux', 'macos', 'windows', 'other'] as const;
+type UploadContext = { country: string | null; os: typeof uploadOS[number] | null };
+
+function contextForUpload(request: Request): UploadContext | Response {
+    const os = request.headers.get('X-Model-Tides-Upload-OS');
+    if (os !== null && !uploadOS.some((value) => value === os)) {
+        return response({ error: 'Invalid upload OS.' }, 400);
+    }
+    const country = (request as Request & { cf?: { country?: unknown } }).cf?.country;
+    return { country: typeof country === 'string' && /^[A-Z]{2}$/.test(country) &&
+        country !== 'XX' && country !== 'T1' ? country : null,
+    os: os as UploadContext['os'] };
+}
 
 function response(body: unknown, status = 200): Response {
     return new Response(JSON.stringify(body), {
@@ -103,28 +116,29 @@ function rows(snapshot: WeeklySnapshot): { week: string; model: string; count: n
 }
 
 function insertRows(db: Database, id: string, entries: ReturnType<typeof rows>, hash?: string,
-    expectedPublished?: number, expectedAggregate?: number, metricVersion?: number, nonce?: string): Statement[] {
+    expectedPublished?: number, expectedAggregate?: number, metricVersion?: number, nonce?: string,
+    context: UploadContext = { country: null, os: null }): Statement[] {
     const statements: Statement[] = [];
-    const perRow = hash ? 3 : 4;
+    const perRow = hash ? 5 : 6;
     const fixed = hash ? 5 + (metricVersion === undefined ? 0 : 1) + (nonce === undefined ? 0 : 1) : 0;
     const batchSize = Math.floor((maxD1Parameters - fixed) / perRow);
     for (let start = 0; start < entries.length; start += batchSize) {
         const slice = entries.slice(start, start + batchSize);
-        const values = slice.flatMap((entry) => [entry.week, entry.model, entry.count]);
+        const values = slice.flatMap((entry) => [entry.week, entry.model, entry.count, context.country, context.os]);
         if (hash) {
             if ((expectedPublished !== 0 && expectedPublished !== 1) || (expectedAggregate !== 0 && expectedAggregate !== 1)) {
                 throw new TypeError('Expected report state.');
             }
-            const sql = `WITH input(week, model, count) AS (VALUES ${slice.map(() => '(?, ?, ?)').join(', ')})
-                INSERT INTO weekly_counts (contributor_id, week, model, count)
-                SELECT ?, week, model, count FROM input WHERE EXISTS
+            const sql = `WITH input(week, model, count, upload_country, upload_os) AS (VALUES ${slice.map(() => '(?, ?, ?, ?, ?)').join(', ')})
+                INSERT INTO weekly_counts (contributor_id, week, model, count, upload_country, upload_os)
+                SELECT ?, week, model, count, upload_country, upload_os FROM input WHERE EXISTS
                 (SELECT 1 FROM contributors WHERE id = ? AND token_hash = ? AND published = ? AND in_aggregate = ?
                 ${metricVersion === undefined ? '' : 'AND metric_version = ?'} ${nonce === undefined ? '' : 'AND migration_nonce = ?'})`;
             statements.push(db.prepare(sql).bind(...values, id, id, hash, expectedPublished, expectedAggregate,
                 ...(metricVersion === undefined ? [] : [metricVersion]), ...(nonce === undefined ? [] : [nonce])));
         } else {
-            const sql = `INSERT INTO weekly_counts (contributor_id, week, model, count) VALUES ${slice.map(() => '(?, ?, ?, ?)').join(', ')}`;
-            statements.push(db.prepare(sql).bind(...slice.flatMap((entry) => [id, entry.week, entry.model, entry.count])));
+            const sql = `INSERT INTO weekly_counts (contributor_id, week, model, count, upload_country, upload_os) VALUES ${slice.map(() => '(?, ?, ?, ?, ?, ?)').join(', ')}`;
+            statements.push(db.prepare(sql).bind(...slice.flatMap((entry) => [id, entry.week, entry.model, entry.count, context.country, context.os])));
         }
     }
     return statements;
@@ -230,6 +244,8 @@ export async function handleContributions(
         const invalidHeaders = uploadHeaders(request);
         if (invalidHeaders) return invalidHeaders;
     }
+    const context = isCreate || isReplace || isMigrate ? contextForUpload(request) : null;
+    if (context instanceof Response) return context;
     if (isLegacyCreate || (isCreate && request.headers.get('X-Model-Tides-Report') !==
         (isDonatedCreate ? 'donated-v2' : path === activeCreatePath ? 'personal-v2' : isPersonalCreate ? 'personal-v1' : 'private-v1'))) {
         return response({ error: 'Update Model Tides before uploading a personal report.' }, 426);
@@ -322,7 +338,7 @@ export async function handleContributions(
             db.prepare('INSERT INTO contributors (id, token_hash, created_at, updated_at, published, in_aggregate, metric_version) VALUES (?, ?, ?, ?, ?, ?, ?)')
                 .bind(createdId, await tokenHash(secret), now, now, isPersonalCreate || isDonatedCreate ? 1 : 0,
                     isDonatedCreate || !isPersonalCreate ? 1 : 0, snapshot.version),
-            ...insertRows(db, createdId, entries),
+            ...insertRows(db, createdId, entries, undefined, undefined, undefined, undefined, undefined, context!),
         ]);
         return response({ id: createdId, published: isPersonalCreate || isDonatedCreate,
             inAggregate: isDonatedCreate || !isPersonalCreate, token: secret,
@@ -339,7 +355,7 @@ export async function handleContributions(
             db.prepare(`DELETE FROM weekly_counts WHERE contributor_id = ? AND EXISTS
                 (SELECT 1 FROM contributors WHERE id = ? AND token_hash = ? AND migration_nonce = ?)`)
                 .bind(id!, id!, hash!, nonce),
-            ...insertRows(db, id!, entries, hash!, expectedPublished, expectedAggregate, 2, nonce),
+            ...insertRows(db, id!, entries, hash!, expectedPublished, expectedAggregate, 2, nonce, context!),
             db.prepare('UPDATE contributors SET migration_nonce = NULL WHERE id = ? AND token_hash = ? AND migration_nonce = ?')
                 .bind(id!, hash!, nonce),
         ]);
@@ -363,7 +379,7 @@ export async function handleContributions(
         db.prepare(`DELETE FROM weekly_counts WHERE contributor_id = ? AND week IN (SELECT value FROM json_each(?))
             AND EXISTS (SELECT 1 FROM contributors WHERE id = ? AND token_hash = ? AND published = ? AND in_aggregate = ?)`)
             .bind(id!, JSON.stringify(weeks), id!, hash!, expectedPublished, expectedAggregate),
-        ...insertRows(db, id!, entries, hash!, expectedPublished, expectedAggregate, snapshot.version),
+        ...insertRows(db, id!, entries, hash!, expectedPublished, expectedAggregate, snapshot.version, undefined, context!),
     ];
     const result = await db.batch(statements).catch(async (error: unknown) => {
         if (error instanceof Error && error.message.includes(storedLimitTrigger) && await exceedsStoredLimit()) return null;

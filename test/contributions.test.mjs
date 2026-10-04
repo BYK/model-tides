@@ -18,6 +18,7 @@ function database(migrated = true) {
         sqlite.exec(readFileSync(new URL('../migrations/0003_counts_revision.sql', import.meta.url), 'utf8'));
         sqlite.exec(readFileSync(new URL('../migrations/0004_personal_reports.sql', import.meta.url), 'utf8'));
         sqlite.exec(readFileSync(new URL('../migrations/0005_active_session_days.sql', import.meta.url), 'utf8'));
+        sqlite.exec(readFileSync(new URL('../migrations/0006_upload_context.sql', import.meta.url), 'utf8'));
     };
     if (migrated) migrate();
     const prepare = (sql) => {
@@ -172,6 +173,56 @@ test('personal upload has a working link but never enters aggregate until separa
             method: 'POST', headers: { Authorization: `Bearer ${token}`, 'X-Model-Tides-Reviewed-Revision': '0' },
         }), db, limit, contributePath);
         assert.equal(delayed.status, 409);
+    } finally { db.close(); }
+});
+
+test('upload context belongs to replaced cells, not the whole historical report', async () => {
+    const db = database();
+    try {
+        const first = { ...snapshot(), version: 2, weeks: [
+            { week: '2026-09-21', models: { 'openai/gpt-5': 1 } },
+            ...snapshot().weeks,
+        ] };
+        const initial = upload(first, '/api/contributions/personal-v2');
+        initial.headers.set('X-Model-Tides-Upload-OS', 'linux');
+        Object.defineProperty(initial, 'cf', { value: { country: 'GB' } });
+        const created = await handleContributions(initial, db, limit, '/api/contributions/personal-v2');
+        assert.equal(created.status, 201);
+        const { id, token } = await created.json();
+        const read = async () => (await db.prepare('SELECT week, upload_country, upload_os FROM weekly_counts WHERE contributor_id = ? ORDER BY week')
+            .bind(id).all()).results.map((row) => ({ ...row }));
+        assert.deepEqual(await read(), [
+            { week: '2026-09-21', upload_country: 'GB', upload_os: 'linux' },
+            { week: '2026-09-28', upload_country: 'GB', upload_os: 'linux' },
+        ]);
+        const second = upload({ ...snapshot(3), version: 2 }, `/api/contributions/${id}`, 'PUT', token, 'public', 'excluded');
+        second.headers.set('X-Model-Tides-Upload-OS', 'macos');
+        Object.defineProperty(second, 'cf', { value: { country: 'US' } });
+        assert.equal((await handleContributions(second, db, limit, `/api/contributions/${id}`)).status, 200);
+        assert.deepEqual(await read(), [
+            { week: '2026-09-21', upload_country: 'GB', upload_os: 'linux' },
+            { week: '2026-09-28', upload_country: 'US', upload_os: 'macos' },
+        ]);
+        const third = upload({ ...snapshot(4), version: 2 }, `/api/contributions/${id}`, 'PUT', token, 'public', 'excluded');
+        third.headers.set('User-Agent', 'Windows NT 10.0');
+        third.headers.set('CF-IPCountry', 'US');
+        Object.defineProperty(third, 'cf', { value: { country: 'XX' } });
+        assert.equal((await handleContributions(third, db, limit, `/api/contributions/${id}`)).status, 200);
+        assert.deepEqual(await read(), [
+            { week: '2026-09-21', upload_country: 'GB', upload_os: 'linux' },
+            { week: '2026-09-28', upload_country: null, upload_os: null },
+        ]);
+        const invalid = upload({ ...snapshot(5), version: 2 }, `/api/contributions/${id}`, 'PUT', token, 'public', 'excluded');
+        invalid.headers.set('X-Model-Tides-Upload-OS', 'Windows 11; private device');
+        assert.equal((await handleContributions(invalid, db, limit, `/api/contributions/${id}`)).status, 400);
+        assert.deepEqual(await read(), [
+            { week: '2026-09-21', upload_country: 'GB', upload_os: 'linux' },
+            { week: '2026-09-28', upload_country: null, upload_os: null },
+        ]);
+        const publicReport = await (await handleContributions(new Request(`https://modeltides.dev/api/contributions/${id}`),
+            db, limit, `/api/contributions/${id}`)).json();
+        assert.equal(JSON.stringify(publicReport).includes('upload_country'), false);
+        assert.equal(JSON.stringify(publicReport).includes('upload_os'), false);
     } finally { db.close(); }
 });
 
@@ -848,6 +899,12 @@ test('headers and rate limit reject invalid uploads before body is read or datab
         assert.equal((await handleContributions(upload(snapshot(), '/api/contributions'), db, rejectLimit,
             '/api/contributions')).status, 426, 'the old path cannot create even with the new header');
         assert.equal(called, 0);
+        assert.equal((await db.prepare('SELECT count(*) AS count FROM contributors').first()).count, 0);
+        const invalidOS = upload({ ...snapshot(), version: 2 }, '/api/contributions/personal-v2');
+        invalidOS.headers.set('X-Model-Tides-Upload-OS', 'Linux; private hardware');
+        assert.equal((await handleContributions(invalidOS, db, rejectLimit,
+            '/api/contributions/personal-v2')).status, 400);
+        assert.equal(called, 0, 'invalid context is rejected before rate limiting and database writes');
         assert.equal((await db.prepare('SELECT count(*) AS count FROM contributors').first()).count, 0);
         assert.equal((await handleContributions(upload(snapshot()), db, rejectLimit, '/api/contributions/private')).status, 429);
         assert.equal(called, 1);

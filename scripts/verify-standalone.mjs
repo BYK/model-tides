@@ -38,11 +38,25 @@ try {
             content: [{ type: 'text', text: 'private Pi reply' }],
         } },
     ].map(JSON.stringify).join('\n') + '\n');
+    const copilot = join(home, '.copilot/session-state/fixture');
+    mkdirSync(copilot, { recursive: true });
+    writeFileSync(join(copilot, 'events.jsonl'), [
+        { type: 'session.start', data: { sessionId: 'private-copilot-id', selectedModel: 'auto' }, timestamp: '2026-09-28T00:00:00Z' },
+        { type: 'assistant.message', data: { model: 'gpt-5', content: 'private Copilot reply' }, timestamp: '2026-09-28T12:00:00Z' },
+    ].map(JSON.stringify).join('\n') + '\n');
+    const vscode = process.platform === 'darwin' ?
+        join(home, 'Library/Application Support/Code/User/globalStorage/emptyWindowChatSessions') :
+        join(root, 'config/Code/User/globalStorage/emptyWindowChatSessions');
+    mkdirSync(vscode, { recursive: true });
+    writeFileSync(join(vscode, 'fixture.json'), JSON.stringify({ version: 3, sessionId: 'private-vscode-id',
+        responderUsername: 'GitHub Copilot', requests: [{ timestamp: Date.UTC(2026, 8, 29, 12),
+            modelId: 'claude-sonnet-4.5', modelState: { value: 1 }, response: ['private Copilot reply'] }] }));
 
     const bin = join(root, 'bin');
     mkdirSync(bin);
     symlinkSync(command, join(bin, 'model-tides'));
-    const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: join(root, 'config'),
+    const env = { ...process.env, CODEX_HOME: '', CLAUDE_CONFIG_DIR: '', COPILOT_HOME: '',
+        HOME: home, XDG_CONFIG_HOME: join(root, 'config'),
         XDG_DATA_HOME: join(root, 'data'), PATH: bin };
     const help = spawnSync('model-tides', ['--help'], { encoding: 'utf8', env, cwd: root, timeout: 20_000 });
     assert.ifError(help.error);
@@ -65,9 +79,10 @@ try {
     assert.equal(exported.status, 0, exported.stderr);
     const json = readFileSync(output, 'utf8');
     assert.deepEqual(JSON.parse(json), { format: 'model-tides-daily', version: 2, source: 'multiple', days: [
-        { day: '2026-09-28', models: { 'openai/gpt-5': 2 } },
-        { day: '2026-09-29', models: { 'anthropic/claude-haiku-4-5': 1, 'anthropic/claude-sonnet-4-5': 1 } },
+        { day: '2026-09-28', models: { 'github-copilot/gpt-5': 1, 'openai/gpt-5': 2 } },
+        { day: '2026-09-29', models: { 'anthropic/claude-haiku-4-5': 1, 'anthropic/claude-sonnet-4-5': 1,
+            'github-copilot/claude-sonnet-4.5': 1 } },
     ] });
-    assert.doesNotMatch(json, /private-(?:session|message|pi)|private prompt and reply|private Pi reply|\/private\/path/);
-    console.log('Standalone help and synthetic read-only SQLite/Pi export passed.');
+    assert.doesNotMatch(json, /private-(?:session|message|pi|copilot|vscode)|private prompt and reply|private Pi reply|private Copilot reply|\/private\/path/);
+    console.log('Standalone help and synthetic read-only SQLite/Pi/Copilot export passed.');
 } finally { rmSync(root, { recursive: true, force: true }); }
