@@ -23,6 +23,6 @@ test('standalone verification never falls through to another model-tides on PATH
             env: { ...process.env, PATH: `${fallback}${delimiter}${process.env.PATH ?? ''}` },
         });
         assert.notEqual(result.status, 0, 'An unexecutable target must fail even if another CLI is on PATH.');
-        assert.doesNotMatch(result.stdout, /Standalone help and synthetic read-only SQLite\/Pi export passed/);
+        assert.doesNotMatch(result.stdout, /Standalone help and synthetic read-only SQLite\/Pi\/Copilot export passed/);
     } finally { rmSync(root, { recursive: true, force: true }); }
 });

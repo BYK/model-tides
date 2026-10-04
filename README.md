@@ -4,7 +4,7 @@
 
 ## Share weekly counts
 
-The local CLI reads OpenCode, Codex, Claude Code, and Pi history, shows every week, model, and count, and asks you to type `YES` before publishing. The npm package needs Node.js 24 or newer; the standalone Linux/macOS binary needs neither Node nor Python. Only the reviewed week/model/count pairs leave your device. No prompts, replies, exact event times, paths, session IDs, or imported files are uploaded. Model names, including older versions and provider-specific aliases, are shared exactly as shown.
+The local CLI reads OpenCode, Codex, Claude Code, Pi, and GitHub Copilot history, shows every week, model, and count, and asks you to type `YES` before publishing. The npm package needs Node.js 24 or newer; the standalone Linux/macOS binary needs neither Node nor Python. It sends the reviewed week/model/count pairs and the uploading machine's coarse OS (Linux, macOS, Windows, or other). The Worker records the uploading network's country when Cloudflare supplies it. These describe the upload, **not where past model use occurred**. No prompts, replies, exact event times, paths, session IDs, or imported files are uploaded. Model names, including older versions and provider-specific aliases, are shared exactly as shown.
 
 To install the latest checksum-verified standalone binary:
 
@@ -48,7 +48,7 @@ python3 scripts/export-history.py codex > model-tides.json
 python3 scripts/export-history.py claude-code > model-tides.json
 ```
 
-Run one command at a time. These optional Python tools still write the older **v1 event archive** with exact event times. V1 events cannot recover session activity on days without a switch and cannot be uploaded as active-day counts. The Node CLI scans original history directly for v2. The OpenCode reader uses a read-only SQLite snapshot including committed changes in a live `-wal`; Codex and Claude Code readers skip repeated records and subagent histories. The Pi reader scans `~/.pi/agent/sessions/` JSONL and counts assistant messages across session branches, not model selections or background usage. [Local v2 daily format](MODEL-TIDES.md) and [weekly upload format](WEEKLY-SNAPSHOT.md) describe the new metric.
+Run one command at a time. These optional Python tools still write the older **v1 event archive** with exact event times. V1 events cannot recover session activity on days without a switch and cannot be uploaded as active-day counts. The Node CLI scans original history directly for v2. The OpenCode reader uses a read-only SQLite snapshot including committed changes in a live `-wal`; Codex and Claude Code readers skip repeated records and subagent histories. The Pi reader scans `~/.pi/agent/sessions/` JSONL and counts assistant messages across session branches, not model selections or background usage. Copilot CLI, the Copilot desktop app, and CLI-backed sessions in VS Code share `~/.copilot/session-state/` (or `COPILOT_HOME/session-state/`); the scanner counts dated assistant messages once per session/model/day. VS Code's built-in Copilot Chat is read separately from local Code/Code Insiders chat-session files; only completed responses with an explicit model and Copilot responder are counted. Auto-selected models without a resolved model are skipped. [Local v2 daily format](MODEL-TIDES.md) and [weekly upload format](WEEKLY-SNAPSHOT.md) describe the metric.
 
 ## Develop
 

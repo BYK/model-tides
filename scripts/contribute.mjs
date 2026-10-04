@@ -8,13 +8,22 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { brotliCompressSync } from 'node:zlib';
-import { scanHistory, scanHistoryActive, scanOpenCode, scanOpenCodeActive, scanPiActive } from './history-scanner.mjs';
+import { scanCopilotActive, scanHistory, scanHistoryActive, scanOpenCode, scanOpenCodeActive, scanPiActive, scanVSCodeCopilotActive } from './history-scanner.mjs';
 import { parseUsageDocument, MAX_EVENTS, MAX_JSON_BYTES } from '../src/usage-data.ts';
 import { parseDailyDocument } from '../src/daily-usage.ts';
 import { buildWeeklySnapshot, buildActiveWeeklySnapshot, parseOwnedReport } from '../src/weekly-snapshot.ts';
 
 const api = 'https://modeltides.dev/api/contributions';
 const credential = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'model-tides', 'contribution.json');
+
+export function uploadOSForPlatform(platform) {
+    switch (platform) {
+        case 'darwin': return 'macos';
+        case 'win32': return 'windows';
+        case 'linux': return 'linux';
+        default: return 'other';
+    }
+}
 
 const regular = (path) => {
     try { return lstatSync(path).isFile(); } catch { return false; }
@@ -46,6 +55,36 @@ function hasHistory(root, source) {
     return false;
 }
 
+function hasCopilotHistory(root) {
+    if (!directory(root)) return false;
+    try {
+        return readdirSync(root, { withFileTypes: true }).some((entry) =>
+            entry.isDirectory() && regular(join(root, entry.name, 'events.jsonl')));
+    } catch { throw new Error('Could not scan local Copilot history directories.'); }
+}
+
+function vscodeRoots(home, platform = process.platform) {
+    const base = platform === 'darwin' ? join(home, 'Library/Application Support') :
+        platform === 'win32' ? home === homedir() && process.env.APPDATA || join(home, 'AppData/Roaming') :
+            home === homedir() && process.env.XDG_CONFIG_HOME || join(home, '.config');
+    return ['Code', 'Code - Insiders'].map((name) => join(base, name, 'User'));
+}
+
+function hasVSCodeChat(roots) {
+    try {
+        const hasFiles = (path) => directory(path) && readdirSync(path, { withFileTypes: true })
+            .some((entry) => entry.isFile() && /\.jsonl?$/.test(entry.name));
+        for (const root of roots) {
+            if (hasFiles(join(root, 'globalStorage/emptyWindowChatSessions'))) return true;
+            const storage = join(root, 'workspaceStorage');
+            if (!directory(storage)) continue;
+            if (readdirSync(storage, { withFileTypes: true }).some((entry) =>
+                entry.isDirectory() && hasFiles(join(storage, entry.name, 'chatSessions')))) return true;
+        }
+        return false;
+    } catch { throw new Error('Could not scan local VS Code chat directories.'); }
+}
+
 function readMetadata(bytes) {
     if (bytes.length > MAX_JSON_BYTES) throw new Error('Metadata exceeds the local import limit.');
     try {
@@ -58,14 +97,19 @@ function readMetadata(bytes) {
 
 export function collectSources(home = homedir()) {
     const opencode = join(home, '.local/share/opencode/opencode.db');
-    const codex = join(home, '.codex');
-    const claude = join(home, '.claude/projects');
+    const codex = home === homedir() && process.env.CODEX_HOME || join(home, '.codex');
+    const claude = join(home === homedir() && process.env.CLAUDE_CONFIG_DIR || join(home, '.claude'), 'projects');
     const pi = join(home, '.pi/agent/sessions');
+    const copilot = join(home === homedir() && process.env.COPILOT_HOME ? process.env.COPILOT_HOME :
+        join(home, '.copilot'), 'session-state');
+    const vscode = vscodeRoots(home);
     return [
         ...(regular(opencode) ? [{ name: 'OpenCode', path: opencode }] : []),
         ...(hasHistory(codex, 'codex') ? [{ name: 'Codex', path: codex }] : []),
         ...(hasHistory(claude, 'claude-code') ? [{ name: 'Claude Code', path: claude }] : []),
         ...(hasHistory(pi, 'pi') ? [{ name: 'Pi', path: pi }] : []),
+        ...(hasCopilotHistory(copilot) ? [{ name: 'GitHub Copilot', path: copilot }] : []),
+        ...(hasVSCodeChat(vscode) ? [{ name: 'VS Code Copilot Chat', path: vscode }] : []),
     ];
 }
 
@@ -132,6 +176,8 @@ async function activeDocumentsFromSources(sources, onProgress = () => {}) {
                     case 'Codex': return await scanHistoryActive('codex', source.path);
                     case 'Claude Code': return await scanHistoryActive('claude-code', source.path);
                     case 'Pi': return await scanPiActive(source.path);
+                    case 'GitHub Copilot': return await scanCopilotActive(source.path);
+                    case 'VS Code Copilot Chat': return await scanVSCodeCopilotActive(source.path);
                     default: throw new TypeError('Unsupported history source.');
                 }
             } catch (error) {
@@ -184,10 +230,11 @@ export async function exportLocalMetadata(sources, onProgress) {
 }
 
 export async function publishSnapshot(snapshot, owner = null, fetchImpl = fetch, endpoint = api,
-    published = null, inAggregate = null, reviewedRevision = null) {
+    published = null, inAggregate = null, reviewedRevision = null, os = uploadOSForPlatform(process.platform)) {
     if (owner && (typeof published !== 'boolean' || typeof inAggregate !== 'boolean')) throw new TypeError('Expected report state.');
     const migrating = !!owner && snapshot.version === 2 && reviewedRevision !== null;
     if (migrating && (!Number.isSafeInteger(reviewedRevision) || reviewedRevision < 0)) throw new TypeError('Expected reviewed revision.');
+    if (os !== null && !['linux', 'macos', 'windows', 'other'].includes(os)) throw new TypeError('Invalid upload OS.');
     const body = brotliCompressSync(Buffer.from(JSON.stringify(snapshot)));
     const response = await fetchImpl(owner ? `${endpoint}/${owner.id}${migrating ? '/migrate-v2' : ''}` :
         `${endpoint}/${snapshot.version === 2 ? 'personal-v2' : 'personal'}`, {
@@ -196,6 +243,7 @@ export async function publishSnapshot(snapshot, owner = null, fetchImpl = fetch,
             'Content-Type': 'application/vnd.model-tides.weekly+json',
             'Content-Encoding': 'br',
             'X-Model-Tides-Schema': `weekly-v${snapshot.version}`,
+            ...(os === null ? {} : { 'X-Model-Tides-Upload-OS': os }),
             ...(!owner ? { 'X-Model-Tides-Report': `personal-v${snapshot.version}` } : {}),
             ...(owner ? { Authorization: `Bearer ${owner.token}`,
                 'X-Model-Tides-Expected-Visibility': published ? 'public' : 'private',
@@ -496,7 +544,7 @@ async function main() {
         : await exportLocal(sources, console.log);
     console.log(`Checked ${sources.map(({ name }) => name).join(', ')}. The following weekly counts would be uploaded:`);
     preview(snapshot);
-    console.log('Only the displayed weeks, model names, and counts are uploaded. No prompts, replies, paths, exact times, or session IDs.');
+    console.log(`If uploaded, the displayed weeks, models, counts, and uploading OS (${uploadOSForPlatform(process.platform)}) are sent. The server also records the uploading network's country if available. These describe the upload, not past activity. No prompts, replies, paths, exact times, or session IDs.`);
     const report = owner ? await reportVisibility(owner) : null;
     const published = report?.published ?? true;
     if (owner) {

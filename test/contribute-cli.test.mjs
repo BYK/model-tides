@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { brotliDecompressSync } from 'node:zlib';
-import { collectSources, exportLocal, publishSnapshot, reportVisibility, setAggregate, setSharing, snapshotFromDocuments, snapshotFromDailyDocuments } from '../scripts/contribute.mjs';
+import { collectSources, exportLocal, publishSnapshot, reportVisibility, setAggregate, setSharing, snapshotFromDocuments, snapshotFromDailyDocuments, uploadOSForPlatform } from '../scripts/contribute.mjs';
 import { parseDailyDocument } from '../src/daily-usage.ts';
 
 const doc = {
@@ -19,6 +19,7 @@ const dailyDoc = { format: 'model-tides-daily', version: 2, source: 'opencode', 
     { day: '2026-09-28', models: { 'anthropic/claude-sonnet': 1 } },
     { day: '2026-09-29', models: { 'openai/gpt-5': 1 } },
 ] };
+const isolatedEnvironment = { ...process.env, CODEX_HOME: '', CLAUDE_CONFIG_DIR: '', COPILOT_HOME: '' };
 
 test('discovers supported local histories without following symlinks', () => {
     const home = mkdtempSync(join(tmpdir(), 'model-tides-cli-'));
@@ -42,6 +43,14 @@ test('discovers supported local histories without following symlinks', () => {
         writeFileSync(join(home, '.pi/agent/sessions/--project--/session.jsonl'),
             JSON.stringify({ type: 'session', id: 'private-pi-id', version: 3 }) + '\n');
         assert.deepEqual(collectSources(home).map(({ name }) => name), ['OpenCode', 'Codex', 'Pi']);
+        mkdirSync(join(home, '.copilot/session-state/empty'), { recursive: true });
+        assert.deepEqual(collectSources(home).map(({ name }) => name), ['OpenCode', 'Codex', 'Pi']);
+        writeFileSync(join(home, '.copilot/session-state/empty/events.jsonl'), '{}\n');
+        assert.deepEqual(collectSources(home).map(({ name }) => name), ['OpenCode', 'Codex', 'Pi', 'GitHub Copilot']);
+        mkdirSync(join(home, '.config/Code/User/workspaceStorage/fixture/chatSessions'), { recursive: true });
+        writeFileSync(join(home, '.config/Code/User/workspaceStorage/fixture/chatSessions/chat.json'), '{}');
+        assert.deepEqual(collectSources(home).map(({ name }) => name),
+            ['OpenCode', 'Codex', 'Pi', 'GitHub Copilot', 'VS Code Copilot Chat']);
     } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
@@ -60,7 +69,7 @@ globalThis.fetch = () => { throw new Error('No network request expected.'); };`)
         const run = (input, tty) => spawnSync(process.execPath, ['--experimental-strip-types',
             ...(tty ? ['--import', preload] : []), 'scripts/contribute.mjs', 'key'], {
             cwd: new URL('../', import.meta.url), encoding: 'utf8', input, timeout: 10_000,
-            env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home },
+            env: { ...isolatedEnvironment, HOME: home, XDG_CONFIG_HOME: home },
         });
         const redirected = run('YES\n', false);
         assert.equal(redirected.status, 1);
@@ -76,7 +85,11 @@ globalThis.fetch = () => { throw new Error('No network request expected.'); };`)
     } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
-test('CLI sends only approved weekly model counts as Brotli, with private token only on replacement', async () => {
+test('CLI sends reviewed weekly counts and coarse uploading OS, with private token only on replacement', async () => {
+    assert.equal(uploadOSForPlatform('darwin'), 'macos');
+    assert.equal(uploadOSForPlatform('win32'), 'windows');
+    assert.equal(uploadOSForPlatform('linux'), 'linux');
+    assert.equal(uploadOSForPlatform('freebsd'), 'other');
     const snapshot = snapshotFromDailyDocuments([dailyDoc]);
     const calls = [];
     const fakeFetch = async (url, options) => {
@@ -92,6 +105,9 @@ test('CLI sends only approved weekly model counts as Brotli, with private token 
     assert.equal(calls[0].headers['Content-Encoding'], 'br');
     assert.equal(calls[0].headers['X-Model-Tides-Report'], 'personal-v2');
     assert.equal(calls[0].headers['X-Model-Tides-Schema'], 'weekly-v2');
+    assert.equal(calls[0].headers['X-Model-Tides-Upload-OS'], uploadOSForPlatform(process.platform));
+    assert.equal(calls[1].headers['X-Model-Tides-Upload-OS'], uploadOSForPlatform(process.platform));
+    assert.equal(calls[0].headers['X-Model-Tides-Upload-Country'], undefined);
     assert.equal(calls[0].headers.Authorization, undefined);
     assert.equal(calls[1].url, 'https://example.test/api/contributions/public-id');
     assert.equal(calls[1].method, 'PUT');
@@ -126,7 +142,7 @@ test('CLI warns before replacing weeks in an already public report', () => {
         const result = spawnSync(process.execPath, ['--experimental-strip-types', '--import', preload,
             'scripts/contribute.mjs', 'upload', '--input', input], {
             cwd: new URL('../', import.meta.url), encoding: 'utf8', input: 'NO\n', timeout: 10_000,
-            env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home,
+            env: { ...isolatedEnvironment, HOME: home, XDG_CONFIG_HOME: home,
                 HTTPS_PROXY: 'http://127.0.0.1:1', HTTP_PROXY: 'http://127.0.0.1:1' },
         });
         assert.equal(result.status, 0, result.stderr);
@@ -159,7 +175,7 @@ globalThis.fetch = async (url, options) => {
         const result = spawnSync(process.execPath, ['--experimental-strip-types', '--import', preload,
             'scripts/contribute.mjs', 'upload', '--input', input], {
             cwd: new URL('../', import.meta.url), encoding: 'utf8', input: 'YES\n', timeout: 10_000,
-            env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home, CAPTURE: capture,
+            env: { ...isolatedEnvironment, HOME: home, XDG_CONFIG_HOME: home, CAPTURE: capture,
                 HTTPS_PROXY: 'http://127.0.0.1:1', HTTP_PROXY: 'http://127.0.0.1:1' },
         });
         assert.equal(result.status, 0, result.stderr);
@@ -236,7 +252,7 @@ test('help lists every CLI command and its privacy choices without scanning hist
     try {
         const result = spawnSync(process.execPath, ['--experimental-strip-types', 'scripts/contribute.mjs', 'help'], {
             cwd: new URL('../', import.meta.url), encoding: 'utf8', timeout: 10_000,
-            env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home, HTTPS_PROXY: 'http://127.0.0.1:1' },
+            env: { ...isolatedEnvironment, HOME: home, XDG_CONFIG_HOME: home, HTTPS_PROXY: 'http://127.0.0.1:1' },
         });
         assert.equal(result.status, 0, result.stderr);
         for (const command of ['upload', 'contribute', 'withdraw', 'share', 'unshare', 'gist', 'link', 'key', 'export', 'help']) {
@@ -264,7 +280,7 @@ test('CLI shows every stored week before confirming personal report sharing', ()
         const result = spawnSync(process.execPath, ['--experimental-strip-types', '--import', preload,
             'scripts/contribute.mjs', 'share'], {
             cwd: new URL('../', import.meta.url), encoding: 'utf8', input: 'NO\n', timeout: 10_000,
-            env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home,
+            env: { ...isolatedEnvironment, HOME: home, XDG_CONFIG_HOME: home,
                 HTTPS_PROXY: 'http://127.0.0.1:1', HTTP_PROXY: 'http://127.0.0.1:1' },
         });
         assert.equal(result.status, 0, result.stderr);
@@ -321,7 +337,7 @@ if (process.argv[2] === 'api' && process.argv[3] === 'user') {
 writeFileSync(process.env.GIST_CAPTURE, JSON.stringify({ args: process.argv.slice(2), content: readFileSync(0, 'utf8') }));
 process.stdout.write('https://gist.github.com/0123456789abcdef0123456789abcdef\\n');
 `, { mode: 0o700 });
-        const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: home,
+        const env = { ...isolatedEnvironment, HOME: home, XDG_CONFIG_HOME: home,
             PATH: `${home}:${process.env.PATH}`, GIST_CAPTURE: capture,
             HTTPS_PROXY: 'http://127.0.0.1:1', HTTP_PROXY: 'http://127.0.0.1:1' };
         const run = (answer) => spawnSync(process.execPath, ['--experimental-strip-types', 'scripts/contribute.mjs', 'gist', '--input', input], {
@@ -363,7 +379,7 @@ process.stdout.write('https://gist.github.com/0123456789abcdef0123456789abcdef\\
         const result = spawnSync(process.execPath, ['--experimental-strip-types', '--import', interceptor,
             'scripts/contribute.mjs', 'upload', '--input', input], {
             cwd: new URL('../', import.meta.url), encoding: 'utf8', input: 'GIST\n', timeout: 10_000,
-            env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home, GIST_CAPTURE: capture,
+            env: { ...isolatedEnvironment, HOME: home, XDG_CONFIG_HOME: home, GIST_CAPTURE: capture,
                 PATH: `${home}:${process.env.PATH}`, HTTPS_PROXY: 'http://127.0.0.1:1' },
         });
         assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
@@ -380,7 +396,7 @@ test('malformed input never prints private JSON text', () => {
         writeFileSync(path, '{"private transcript":"do not print this",');
         const result = spawnSync(process.execPath, ['--experimental-strip-types', 'scripts/contribute.mjs', 'upload', '--input', path], {
             cwd: new URL('../', import.meta.url), encoding: 'utf8',
-            env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home },
+            env: { ...isolatedEnvironment, HOME: home, XDG_CONFIG_HOME: home },
         });
         assert.notEqual(result.status, 0);
         assert.match(result.stderr, /Expected a Model Tides v2 daily activity file/);
@@ -395,7 +411,7 @@ test('malformed local owner key never prints credential text', () => {
         writeFileSync(join(home, 'model-tides/contribution.json'), '{"token":"private-key-material",', { mode: 0o600 });
         const result = spawnSync(process.execPath, ['--experimental-strip-types', 'scripts/contribute.mjs', 'upload', '--delete'], {
             cwd: new URL('../', import.meta.url), encoding: 'utf8',
-            env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home },
+            env: { ...isolatedEnvironment, HOME: home, XDG_CONFIG_HOME: home },
         });
         assert.notEqual(result.status, 0);
         assert.match(result.stderr, /Invalid local private key file/);
@@ -412,7 +428,7 @@ test('link prints only the existing public URL without scanning history or makin
         writeFileSync(join(home, 'model-tides/contribution.json'), JSON.stringify({ id, token }), { mode: 0o600 });
         const result = spawnSync(process.execPath, ['--experimental-strip-types', 'scripts/contribute.mjs', 'link'], {
             cwd: new URL('../', import.meta.url), encoding: 'utf8', timeout: 10_000,
-            env: { ...process.env, HOME: home, XDG_CONFIG_HOME: home, HTTPS_PROXY: 'http://127.0.0.1:1', HTTP_PROXY: 'http://127.0.0.1:1' },
+            env: { ...isolatedEnvironment, HOME: home, XDG_CONFIG_HOME: home, HTTPS_PROXY: 'http://127.0.0.1:1', HTTP_PROXY: 'http://127.0.0.1:1' },
         });
         assert.equal(result.status, 0, result.stderr);
         assert.match(result.stdout, new RegExp(`^Public link: https://modeltides\\.dev/u/${id}\\n`));
@@ -438,7 +454,7 @@ test('CLI export combines private active-day counts without contacting the site 
             sessionId: 'private-claude-id',
         }) + '\n');
         const path = join(home, 'history.json');
-        const env = { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, 'config'), HTTPS_PROXY: 'http://127.0.0.1:1', HTTP_PROXY: 'http://127.0.0.1:1' };
+        const env = { ...isolatedEnvironment, HOME: home, XDG_CONFIG_HOME: join(home, 'config'), HTTPS_PROXY: 'http://127.0.0.1:1', HTTP_PROXY: 'http://127.0.0.1:1' };
         const run = (output) => spawnSync(process.execPath, ['--experimental-strip-types', 'scripts/contribute.mjs', 'export', '--output', output], {
             cwd: new URL('../', import.meta.url), env, encoding: 'utf8', timeout: 10_000,
         });
