@@ -89,6 +89,12 @@ test('a shared report renders an explorable flow chart from public weekly counts
         assert.equal(calls[0].options.cache, 'no-store');
         assert.match(items['report-chart'].innerHTML, /class="chart-card flow-chart"/);
         assert.match(items['report-chart'].innerHTML, /class="range-track"/);
+        assert.match(items.app.innerHTML, /class="report-intro"/,
+            'the public report has a dedicated, human-readable introduction');
+        assert.match(items.app.innerHTML, /data-lucide="copy"/,
+            'share actions use the shared icon treatment');
+        assert.match(items.app.innerHTML, /<details class="donation-card"/,
+            'owner-only contribution controls stay out of the reading flow until requested');
         assert.doesNotMatch(items.app.innerHTML, /View exact weekly counts|<table/);
         assert.match(items['chart-canvas'].innerHTML, /<svg/);
         assert.doesNotMatch(items['chart-canvas'].innerHTML, /<img src=x/);

@@ -2,6 +2,7 @@ import './model-usage.css';
 import './flow-svg/flow-svg.css';
 import { mountFlowChart } from './flow-chart';
 import { loadGlobalView } from './global-view';
+import { mountIcons } from './icons';
 import { setupTheme } from './theme';
 
 const root = document.querySelector<HTMLElement>('#app');
@@ -33,7 +34,7 @@ root.innerHTML = `
                     <option value="curl">curl</option>
                 </select>
                 <code id="upload-command">npx model-tides@latest upload</code>
-                <button class="copy-command" id="copy-command" type="button" aria-label="Copy command" title="Copy command"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></button>
+                <button class="copy-command" id="copy-command" type="button" aria-label="Copy command" title="Copy command"><i data-lucide="copy"></i></button>
             </div>
             <p class="command-help">Review counts locally, then choose a personal link or an unlisted gist.</p>
             <p class="visually-hidden" id="command-status" role="status" aria-live="polite"></p>
@@ -42,6 +43,8 @@ root.innerHTML = `
         <footer class="home-footer"><a href="https://github.com/BYK/model-tides" target="_blank" rel="noopener noreferrer">see the code ↗</a></footer>
     </main>
 `;
+
+mountIcons(root);
 
 const chart = mountFlowChart(root.querySelector<HTMLElement>('#global-chart')!, {
     title: 'Community model tides', headingLevel: 2, initialStatus: 'Loading shared model counts…',

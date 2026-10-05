@@ -3,6 +3,7 @@ import './flow-svg/flow-svg.css';
 import { mountFlowChart } from './flow-chart';
 import { downloadBlob } from './download-image';
 import { loadOwnedForDonation, donateOwnedReport } from './donation';
+import { mountIcons } from './icons';
 import { parseReportRange, reportRangeSearch } from './report-range';
 import { setupTheme } from './theme';
 import { parsePublicReport } from './weekly-snapshot';
@@ -19,33 +20,44 @@ root.innerHTML = `
             </a>
             <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark theme">Dark theme</button>
         </header>
-        <div id="report-chart"></div>
-        <div class="report-share" role="group" aria-label="Share this model tide">
-            <label class="share-nickname" for="share-nickname">Name for your post (optional)
-                <input id="share-nickname" type="text" maxlength="32" autocomplete="off" placeholder="e.g. BYK" /></label>
-            <button class="text-button" id="copy-report-image" type="button">Copy image</button>
-            <button class="text-button" id="download-report-image" type="button">Download PNG</button>
-            <button class="text-button" id="native-share-image" type="button" hidden>Share image…</button>
-            <a id="share-x" target="_blank" rel="noopener noreferrer">Post on X ↗</a>
-            <a id="share-bluesky" target="_blank" rel="noopener noreferrer">Post on Bluesky ↗</a>
-            <span id="share-status" role="status" aria-live="polite"></span>
-        </div>
-        <section class="donation-card" aria-labelledby="donation-heading" hidden>
-            <h2 id="donation-heading">Donate your data</h2>
-            <p>Only the report owner can add these counts to the community chart. Run <code>npx model-tides@latest key</code> locally to reveal your saved owner key after confirmation, then enter it below to review every stored week. Or run <code>npx model-tides@latest contribute</code> locally to review and donate from the CLI. The key stays in this tab and never appears in the URL.</p>
-            <p>If you are not the owner of this data, why not <a href="/#home-cta-heading">try yours</a>?</p>
-            <p id="donate-legacy" hidden>This older report counts starts and switches. Rescan local history with the current CLI to replace it with active session-days before donating.</p>
-            <form id="donate-owner-form"><label for="donate-owner-key">Private owner key</label>
-                <input id="donate-owner-key" type="password" autocomplete="off" spellcheck="false" required />
-                <button id="donate-review" type="submit">Review counts</button></form>
-            <div id="donate-confirm" hidden><p>These exact self-reported counts will appear on the community chart, even if yours is the only contribution. Anyone can see the model and week totals.</p>
-                <pre id="donate-counts"></pre><button id="donate-submit" type="button">Donate your data</button></div>
-            <p id="donate-status" role="status" aria-live="polite"></p>
+        <section class="report-intro" aria-label="About this shared report">
+            <p class="eyebrow">SHARED MODEL HISTORY</p>
+            <p>Explore a privacy-preserving weekly record. The selected window travels with this link.</p>
         </section>
+        <div id="report-chart"></div>
+        <section class="report-share" role="group" aria-label="Share this model tide">
+            <div class="report-share-copy"><p class="eyebrow">SHARE THIS VIEW</p>
+                <p>Send the current time window as a link or image.</p></div>
+            <div class="report-share-actions">
+                <label class="share-nickname" for="share-nickname"><span>Name for your post</span>
+                    <input id="share-nickname" type="text" maxlength="32" autocomplete="off" placeholder="Optional" /></label>
+                <button class="report-action" id="copy-report-image" type="button"><i data-lucide="copy"></i><span>Copy image</span></button>
+                <button class="report-action" id="download-report-image" type="button"><i data-lucide="download"></i><span>Download PNG</span></button>
+                <button class="report-action" id="native-share-image" type="button" hidden><i data-lucide="share-2"></i><span>Share image</span></button>
+                <a class="report-action" id="share-x" target="_blank" rel="noopener noreferrer"><span>Post on X</span><i data-lucide="external-link"></i></a>
+                <a class="report-action" id="share-bluesky" target="_blank" rel="noopener noreferrer"><span>Post on Bluesky</span><i data-lucide="external-link"></i></a>
+            </div>
+            <span id="share-status" role="status" aria-live="polite"></span>
+        </section>
+        <details class="donation-card" aria-labelledby="donation-heading" hidden>
+            <summary><span><span class="eyebrow">OWNER ACTION</span><span class="donation-summary-heading" id="donation-heading">Is this your report?</span></span><i data-lucide="chevron-down"></i></summary>
+            <div class="donation-card-content">
+                <p>Only the report owner can add these counts to the community chart. Run <code>npx model-tides@latest key</code> locally to reveal your saved owner key after confirmation, then enter it below to review every stored week. Or run <code>npx model-tides@latest contribute</code> locally to review and donate from the CLI. The key stays in this tab and never appears in the URL.</p>
+                <p>If you are not the owner of this data, why not <a href="/#home-cta-heading">try yours</a>?</p>
+                <p id="donate-legacy" hidden>This older report counts starts and switches. Rescan local history with the current CLI to replace it with active session-days before donating.</p>
+                <form id="donate-owner-form"><label for="donate-owner-key">Private owner key</label>
+                    <input id="donate-owner-key" type="password" autocomplete="off" spellcheck="false" required />
+                    <button id="donate-review" type="submit">Review counts</button></form>
+                <div id="donate-confirm" hidden><p>These exact self-reported counts will appear on the community chart, even if yours is the only contribution. Anyone can see the model and week totals.</p>
+                    <pre id="donate-counts"></pre><button id="donate-submit" type="button">Donate your data</button></div>
+                <p id="donate-status" role="status" aria-live="polite"></p>
+            </div>
+        </details>
         <p id="donation-result" class="donation-result" role="status" aria-live="polite" hidden></p>
-        <footer class="report-footer"><p>Self-reported weekly model counts; no exact times or tracked switches. Crossing streams pair declines with rises in adjacent weeks (or months when zoomed out). They suggest apparent shifts, not a person's migration. Anyone with this link can view these counts.</p>
+        <footer class="report-footer"><p>Weekly model counts only—never exact times or session IDs. Crossing streams show inferred shifts, not tracked migrations.</p>
             <a href="/">Model Tides home</a> · <a href="https://github.com/BYK/model-tides" target="_blank" rel="noopener noreferrer">Source on GitHub ↗</a></footer>
     </main>`;
+mountIcons(root);
 setupTheme(root);
 const element = <T extends HTMLElement>(selector: string): T => root.querySelector<T>(selector)!;
 const initialRange = parseReportRange(new URLSearchParams(window.location.search));
