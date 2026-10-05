@@ -1,6 +1,7 @@
 import type { Database } from './contributions';
 import { renderFlowSvg } from '../src/flow-svg/renderer.ts';
 import { getModelColor, OTHER_MODEL_COLOR } from '../src/model-colors.ts';
+import { filterReportCounts, reportRangeSearch, type ReportRange } from '../src/report-range.ts';
 
 const MAX_VISIBLE_MODELS = 6;
 
@@ -19,15 +20,17 @@ export interface PublicReport {
     readonly metricVersion: 1 | 2;
 }
 
-export function summarize(id: string | null, counts: readonly CountRow[], metricVersion: 1 | 2 = 1): PublicReport {
+export function summarize(id: string | null, counts: readonly CountRow[], metricVersion: 1 | 2 = 1,
+    range?: ReportRange): PublicReport {
+    const filteredCounts = range ? filterReportCounts(counts, range) : counts;
     const totals = new Map<string, number>();
-    for (const { model, count } of counts) totals.set(model, (totals.get(model) ?? 0) + count);
+    for (const { model, count } of filteredCounts) totals.set(model, (totals.get(model) ?? 0) + count);
     return {
         id,
         metricVersion,
-        counts,
-        total: counts.reduce((sum, row) => sum + row.count, 0),
-        weeks: new Set(counts.map((row) => row.week)).size,
+        counts: filteredCounts,
+        total: filteredCounts.reduce((sum, row) => sum + row.count, 0),
+        weeks: new Set(filteredCounts.map((row) => row.week)).size,
         models: [...totals].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
             .map(([model, count]) => ({ model, count })),
     };
@@ -47,14 +50,15 @@ export function escapeHtml(text: string | number): string {
         .replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 
-export function pageForReport(report: PublicReport, origin: string, shell: string): Response {
+export function pageForReport(report: PublicReport, origin: string, shell: string, range?: ReportRange): Response {
     const countLabel = report.metricVersion === 2 ? 'active session-days' : 'model uses';
     const title = `My model tide · ${report.total.toLocaleString('en-GB')} ${countLabel} over ${report.weeks} ${report.weeks === 1 ? 'week' : 'weeks'} · Model Tides`;
     const description = report.metricVersion === 2
         ? 'A public chart of self-reported session–model–days with observed activity; no exact times or session IDs are shared.'
         : 'A public chart of earlier session-start and model-switch counts; no exact times or session IDs are shared.';
-    const url = `${origin}/u/${report.id}`;
-    const image = `${origin}/og/${report.id}.png`;
+    const search = reportRangeSearch(range ?? null);
+    const url = `${origin}/u/${report.id}${search}`;
+    const image = `${origin}/og/${report.id}.png${search}`;
     if (!shell.includes('</head>') || !shell.includes('id="app"')) throw new Error('Missing report app shell.');
     const meta = `<meta property="og:type" content="website"><meta property="og:title" content="${escapeHtml(title)}">
 <meta property="og:description" content="${escapeHtml(description)}"><meta property="og:url" content="${escapeHtml(url)}">
@@ -67,7 +71,15 @@ export function pageForReport(report: PublicReport, origin: string, shell: strin
 function personalImageSvg(report: PublicReport): string {
     const countLabel = report.metricVersion === 2 ? 'active session-days' : 'model uses';
     const rows = report.counts.map(({ week, model, count }) => ({ time: Date.parse(`${week}T00:00:00Z`), model, count }));
-    if (!rows.length || rows.some(({ time }) => !Number.isFinite(time))) throw new RangeError('Invalid report weeks.');
+    if (!rows.length) return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" font-family="Iosevka Aile, sans-serif" role="img" aria-label="My model tide: no activity in this selected window">
+<title>My model tide</title><desc>No self-reported weekly ${countLabel} in this selected window.</desc>
+<rect width="1200" height="630" fill="#102832"/><path d="M0 48Q300 10 600 48T1200 48" fill="none" stroke="#2b6e76" stroke-width="2"/>
+<text x="60" y="37" fill="#82d6ca" font-family="Iosevka, monospace" font-size="17" letter-spacing="3">MODEL TIDES · SHARED MODEL HISTORY</text>
+<text x="60" y="94" fill="#eaf7f6" font-family="Iosevka Etoile, serif" font-size="48">My model tide</text>
+<text x="60" y="280" fill="#eaf7f6" font-size="28">No activity in this selected window</text>
+<text x="60" y="320" fill="#adc6c9" font-size="19">Try widening the date range to include weekly counts.</text>
+<text x="60" y="607" fill="#adc6c9" font-size="15">Weekly counts · crossed ribbons = inferred shifts, no tracked switches</text></svg>`;
+    if (rows.some(({ time }) => !Number.isFinite(time))) throw new RangeError('Invalid report weeks.');
     const first = Math.min(...rows.map(({ time }) => time));
     const last = Math.max(...rows.map(({ time }) => time));
     const visible = report.models.slice(0, MAX_VISIBLE_MODELS).map(({ model }) => model);

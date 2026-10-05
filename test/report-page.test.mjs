@@ -47,8 +47,13 @@ test('a shared report renders an explorable flow chart from public weekly counts
             createDocumentFragment: element,
             createElement: element,
         };
+        const replacedUrls = [];
         globalThis.window = {
-            location: { pathname: `/u/${id}`, origin: 'https://modeltides.dev' },
+            location: { pathname: `/u/${id}`, search: '?from=2026-09-28&to=2026-09-28', origin: 'https://modeltides.dev' },
+            history: { replaceState(_state, _title, next) {
+                replacedUrls.push(next);
+                globalThis.window.location.search = new URL(next, globalThis.window.location.origin).search;
+            } },
             matchMedia: () => ({ matches: false, addEventListener() {} }),
             innerWidth: 1200, innerHeight: 800, addEventListener() {},
         };
@@ -63,7 +68,7 @@ test('a shared report renders an explorable flow chart from public weekly counts
         let donated = false;
         globalThis.fetch = async (url, options) => {
             calls.push({ url, options });
-            if (url === `/og/${id}.png`) return new Response(new Uint8Array([137, 80, 78, 71]),
+            if (String(url).includes(`/og/${id}.png`)) return new Response(new Uint8Array([137, 80, 78, 71]),
                 { headers: { 'Content-Type': 'image/png' } });
             if (url === `/api/contributions/${id}/aggregate-status`) return Response.json({ id, inAggregate: donated });
             if (options?.method === 'POST') { donated = true; return Response.json({ id, inAggregate: true }); }
@@ -87,17 +92,25 @@ test('a shared report renders an explorable flow chart from public weekly counts
         assert.doesNotMatch(items.app.innerHTML, /View exact weekly counts|<table/);
         assert.match(items['chart-canvas'].innerHTML, /<svg/);
         assert.doesNotMatch(items['chart-canvas'].innerHTML, /<img src=x/);
-        assert.match(items['chart-canvas'].innerHTML, /&lt;img src=x/);
-        assert.match(items['chart-status'].textContent, /9 active session-days/);
+        assert.match(items['chart-status'].textContent, /7 active session-days/);
         assert.equal(items['donate-owner-form'].hidden, false);
         assert.match(items.app.innerHTML, /npx model-tides@latest key/);
         assert.match(items.app.innerHTML, /npx model-tides@latest contribute/);
         assert.match(items.app.innerHTML, /If you are not the owner.*try yours/i);
-        assert.match(items['chart-canvas'].innerHTML, /class="flow-ribbon flow-inferred"/);
         assert.match(items['report-chart'].innerHTML, /inferred shifts/i);
         assert.equal(items['timeline-controls'].hidden, false);
+        assert.equal(items['range-start'].value, String(Date.parse('2026-09-28T00:00:00Z') / 86_400_000),
+            'a valid range in the shared link restores the selected start');
+        assert.equal(items['range-end'].value, String(Date.parse('2026-09-28T00:00:00Z') / 86_400_000),
+            'a valid range in the shared link restores the selected end');
+        items['range-start'].value = String(Date.parse('2026-09-21T00:00:00Z') / 86_400_000);
+        items['range-start'].handlers.get('input')();
+        assert.equal(replacedUrls.at(-1), `/u/${id}?from=2026-09-21&to=2026-09-28`);
+        assert.match(items['chart-canvas'].innerHTML, /&lt;img src=x/);
+        assert.match(items['chart-canvas'].innerHTML, /class="flow-ribbon flow-inferred"/);
         assert.doesNotMatch(items.app.innerHTML, /href="\/local\/"/);
-        assert.equal(new URL(items['share-x'].href).searchParams.get('url'), `https://modeltides.dev/u/${id}`);
+        assert.equal(new URL(items['share-x'].href).searchParams.get('url'),
+            `https://modeltides.dev/u/${id}?from=2026-09-21&to=2026-09-28`);
         assert.match(new URL(items['share-bluesky'].href).searchParams.get('text'), /My model tide.*https:\/\/modeltides\.dev\/u\//);
         assert.equal(new URL(items['share-x'].href).searchParams.get('text'), 'My model tide');
         items['share-nickname'].value = 'BYK';
@@ -143,7 +156,11 @@ test('a shared report renders an explorable flow chart from public weekly counts
         assert.equal(copied.length, 1);
         assert.equal((await copied[0].contents['image/png']).type, 'image/png');
         assert.match(items['share-status'].textContent, /Image copied/);
-        assert.deepEqual(calls.map(({ url }) => url), [`/api/contributions/${id}`, `/api/contributions/${id}/aggregate-status`, `/og/${id}.png`]);
+        assert.deepEqual(calls.slice(0, 2).map(({ url }) => url),
+            [`/api/contributions/${id}`, `/api/contributions/${id}/aggregate-status`]);
+        const imageSearch = new URL(calls[2].url, 'https://modeltides.dev').searchParams;
+        assert.match(calls[2].url, new RegExp(`^/og/${id}\\.png\\?`));
+        assert.ok(imageSearch.has('from') && imageSearch.has('to'), 'the copied image keeps the selected range');
         items['donate-owner-key'].value = 'public-link-is-not-a-key';
         items['donate-owner-form'].handlers.get('submit')({ preventDefault() {} });
         await new Promise(setImmediate);

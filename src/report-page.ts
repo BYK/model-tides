@@ -3,6 +3,7 @@ import './flow-svg/flow-svg.css';
 import { mountFlowChart } from './flow-chart';
 import { downloadBlob } from './download-image';
 import { loadOwnedForDonation, donateOwnedReport } from './donation';
+import { parseReportRange, reportRangeSearch } from './report-range';
 import { setupTheme } from './theme';
 import { parsePublicReport } from './weekly-snapshot';
 
@@ -47,19 +48,26 @@ root.innerHTML = `
     </main>`;
 setupTheme(root);
 const element = <T extends HTMLElement>(selector: string): T => root.querySelector<T>(selector)!;
+const initialRange = parseReportRange(new URLSearchParams(window.location.search));
+const reportUrl = (): string => `${window.location.origin}${window.location.pathname}${reportRangeSearch(
+    parseReportRange(new URLSearchParams(window.location.search)))}`;
 const chart = mountFlowChart(element<HTMLElement>('#report-chart'), {
-    title: 'Your model tide', headingLevel: 1, initialStatus: 'Loading shared weekly counts…',
+    title: 'Your model tide', headingLevel: 1, initialStatus: 'Loading shared weekly counts…', initialRange,
+    onRangeChange(range): void {
+        const search = reportRangeSearch(range);
+        window.history.replaceState(null, '', `${window.location.pathname}${search}`);
+        updateShareLinks();
+    },
 });
 
-const reportUrl = `${window.location.origin}/u/${id}`;
 const nickname = element<HTMLInputElement>('#share-nickname');
 const shareTitle = (): string => {
     const name = nickname.value.trim().replace(/\s+/g, ' ');
     return name && name.length <= 32 && !/[\p{C}]/u.test(name) ? `${name}'s model tide` : 'My model tide';
 };
-const shareText = (): string => `${shareTitle()} · ${reportUrl}`;
+const shareText = (): string => `${shareTitle()} · ${reportUrl()}`;
 function updateShareLinks(): void {
-    element<HTMLAnchorElement>('#share-x').href = `https://twitter.com/intent/tweet?${new URLSearchParams({ text: shareTitle(), url: reportUrl })}`;
+    element<HTMLAnchorElement>('#share-x').href = `https://twitter.com/intent/tweet?${new URLSearchParams({ text: shareTitle(), url: reportUrl() })}`;
     element<HTMLAnchorElement>('#share-bluesky').href = `https://bsky.app/intent/compose?${new URLSearchParams({ text: shareText() })}`;
 }
 nickname.addEventListener('input', updateShareLinks);
@@ -130,9 +138,9 @@ donateButton.addEventListener('click', () => {
         donationStatus.textContent = 'Could not confirm donation. Review the current counts again before retrying.';
     }).finally(() => { donateButton.disabled = false; });
 });
-const imageUrl = `/og/${id}.png`;
+const imageUrl = (): string => `/og/${id}.png${reportRangeSearch(parseReportRange(new URLSearchParams(window.location.search)))}`;
 async function imageBlob(): Promise<Blob> {
-    const response = await fetch(imageUrl, { cache: 'no-store' });
+    const response = await fetch(imageUrl(), { cache: 'no-store' });
     if (!response.ok || !response.headers.get('content-type')?.startsWith('image/png')) throw new Error('Image unavailable.');
     return response.blob();
 }
@@ -160,7 +168,7 @@ if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
         void (async () => {
             const file = new File([await imageBlob()], 'model-tides.png', { type: 'image/png' });
             if (navigator.canShare?.({ files: [file] })) await navigator.share({ title: shareTitle(), text: shareText(), files: [file] });
-            else await navigator.share({ title: shareTitle(), text: shareText(), url: reportUrl });
+            else await navigator.share({ title: shareTitle(), text: shareText(), url: reportUrl() });
         })().catch(() => { shareStatus.textContent = 'Use Copy image or Download PNG to share the chart.'; })
             .finally(() => { nativeShare.disabled = false; });
     });

@@ -1,5 +1,6 @@
 import { getAggregate, handleContributions, type Database, type UploadLimit } from './contributions.ts';
 import { escapeHtml, getReport, pageForReport, summarize } from './public-pages.ts';
+import { parseReportRange } from '../src/report-range.ts';
 
 interface Env {
     ASSETS: { fetch(request: Request): Promise<Response> };
@@ -59,10 +60,14 @@ export default {
             if ((id || globalImage) && (request.method === 'GET' || request.method === 'HEAD')) {
                 if (!env.DB) return new Response('Service unavailable', { status: 503, headers: { 'Cache-Control': 'no-store' } });
                 try {
+                    const range = id ? parseReportRange(url.searchParams) : null;
                     const report = globalImage
                         ? await (async () => { const aggregate = await getAggregate(env.DB);
                             return summarize(null, aggregate.weeks, aggregate.metricVersion); })()
-                        : await getReport(env.DB, id!);
+                        : await (async () => {
+                            const report = await getReport(env.DB, id!);
+                            return report && range ? summarize(report.id, report.counts, report.metricVersion, range) : report;
+                        })();
                     if (!report) return new Response('Not found', { status: 404, headers: { 'Cache-Control': 'no-store' } });
                     if (publicPath.test(url.pathname)) {
                         if (request.method === 'HEAD') return new Response(null, {
@@ -70,7 +75,7 @@ export default {
                         });
                         const asset = await env.ASSETS.fetch(new Request(new URL('/', url)));
                         if (!asset.ok) return new Response('Service unavailable', { status: 503 });
-                        return pageForReport(report, url.origin, await asset.text());
+                        return pageForReport(report, url.origin, await asset.text(), range ?? undefined);
                     }
                     if (request.method === 'HEAD') return new Response(null, { headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' } });
                     const { renderImage } = await import('./og.ts');
