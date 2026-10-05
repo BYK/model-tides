@@ -10,6 +10,30 @@ const MAX_VISIBLE_MODELS = 6;
 const formatCount = (value: number): string => new Intl.NumberFormat('en-GB').format(value);
 const formatDate = (date: Date, options: Intl.DateTimeFormatOptions): string =>
     new Intl.DateTimeFormat('en-GB', { ...options, timeZone: 'UTC' }).format(date);
+const titledPeriod = (period: string, time: number): string => /\b\d{4}\b/.test(period)
+    ? period : `${period} ${new Date(time).getUTCFullYear()}`;
+
+function shortModelName(model: string): string {
+    const name = model.split('/').at(-1) ?? model;
+    const claude = /^claude-(opus|sonnet|haiku)-(\d+)[-.](\d+)(?:-(\d{8}))?(.*)$/i.exec(name);
+    if (claude) {
+        const releaseTime = claude[4] ? Date.parse(`${claude[4].slice(0, 4)}-${claude[4].slice(4, 6)}-${claude[4].slice(6)}T00:00:00Z`) : NaN;
+        const validDate = Number.isFinite(releaseTime) && new Date(releaseTime).toISOString().slice(0, 10).replaceAll('-', '') === claude[4];
+        const date = claude[4] ? ` · ${validDate
+            ? formatDate(new Date(releaseTime), { month: 'short', year: 'numeric' }) : claude[4]}` : '';
+        return `${claude[1][0].toUpperCase()}${claude[1].slice(1)} ${claude[2]}.${claude[3]}${date}${claude[5]}`;
+    }
+    const gemini = /^gemini-(\d+(?:[.-]\d+)?)-(flash|pro)(-preview)?$/i.exec(name);
+    if (gemini) return `Gemini ${gemini[1]} ${gemini[2][0].toUpperCase()}${gemini[2].slice(1)}${gemini[3] ? ' preview' : ''}`;
+    if (/^gpt-/i.test(name)) return name.replace(/^gpt-/i, 'GPT-').replace(/-codex$/i, ' Codex');
+    return name;
+}
+
+function shortProviderName(model: string): string {
+    const provider = model.split('/')[0];
+    return provider === 'github-copilot' ? 'Copilot' : provider === 'openrouter' ? 'OpenRouter'
+        : `${provider[0]?.toUpperCase() ?? ''}${provider.slice(1)}`;
+}
 
 export type ChartSource = 'personal' | 'shared' | 'gist' | 'mock';
 
@@ -36,26 +60,22 @@ export function mountFlowChart(host: HTMLElement, options: {
     host.innerHTML = `
         <section class="chart-card flow-chart" aria-labelledby="chart-heading">
             <div class="chart-heading-row">
-                <div><p class="eyebrow">THE FLOW OF ATTENTION</p><h${options.headingLevel} id="chart-heading"></h${options.headingLevel}></div>
+                <div><h${options.headingLevel} id="chart-heading"></h${options.headingLevel}>
+                    <p id="chart-description" class="chart-description"></p></div>
                 <div class="chart-actions"><span class="model-visibility" id="model-visibility"></span>
                     <button class="text-button" id="show-models" type="button" hidden></button></div>
             </div>
             <p id="chart-status" class="chart-status" role="status" aria-live="polite"></p>
-            <div class="legend" role="group" aria-label="Chart legend">
-                <span class="legend-item"><i class="legend-line"></i><span id="chart-activity-legend">Bright marks = reported activity</span></span>
-                <span class="legend-item"><i class="legend-continuity"></i>Faint streams = recurring models</span>
-                <span class="legend-item"><i class="legend-migration"></i>Crossing streams = inferred shifts</span>
-                <span class="legend-item legend-note" id="chart-legend-note">Weekly counts omit exact times and cannot show tracked switches</span>
-            </div>
             <div class="model-legend" id="model-legend" role="group" aria-label="Model colors"></div>
             <div class="chart-frame">
                 <div class="chart-scroll" id="chart-scroll"><div class="chart-canvas" id="chart-canvas" role="img"></div></div>
+                <div class="chart-tooltip" id="chart-tooltip" role="tooltip" hidden></div>
                 <div class="chart-empty" id="chart-message" hidden></div>
             </div>
             <div class="timeline-controls" id="timeline-controls" hidden>
                 <div class="timeline-head">
-                    <div><p class="eyebrow">ADJUST THE WINDOW</p>
-                        <p class="timeline-instruction">Scroll or pinch to zoom; drag the chart sideways to pan. Adjust dates below.</p></div>
+                    <div><p class="timeline-label">Date range</p>
+                        <p class="timeline-instruction">Scroll or pinch to zoom. Drag the chart or the handles below to change dates.</p></div>
                     <div class="timeline-head-actions">
                         <div class="date-pair"><span id="from-date">—</span><span class="date-arrow">→</span><span id="to-date">—</span></div>
                         <div class="zoom-actions" role="group" aria-label="Timeline zoom controls">
@@ -70,26 +90,49 @@ export function mountFlowChart(host: HTMLElement, options: {
                     <input id="range-end" type="range" aria-label="Timeline end date" /></div>
                 <div class="range-labels"><span id="range-min-label">—</span><span id="range-max-label">—</span></div>
             </div>
+            <p class="chart-detail" id="chart-detail" hidden></p>
+            <details class="chart-key"><summary>How to read this chart</summary>
+                <p id="chart-key-copy"></p></details>
         </section>`;
     mountIcons(host);
     const element = <T extends HTMLElement>(selector: string): T => host.querySelector<T>(selector)!;
     element<HTMLElement>('#chart-heading').textContent = options.title;
     const status = element<HTMLElement>('#chart-status');
+    const detail = element<HTMLElement>('#chart-detail');
+    const description = element<HTMLElement>('#chart-description');
     const canvas = element<HTMLElement>('#chart-canvas');
     const scroll = element<HTMLElement>('#chart-scroll');
+    const tooltip = element<HTMLElement>('#chart-tooltip');
+    const keyCopy = element<HTMLElement>('#chart-key-copy');
     const message = element<HTMLElement>('#chart-message');
     const controls = element<HTMLElement>('#timeline-controls');
     const visibility = element<HTMLElement>('#model-visibility');
     const modelLegend = element<HTMLElement>('#model-legend');
-    const activityLegend = element<HTMLElement>('#chart-activity-legend');
-    const legendNote = element<HTMLElement>('#chart-legend-note');
     const showModels = element<HTMLButtonElement>('#show-models');
     const state = { rows: [] as { time: number; model: string; count: number }[],
         source: 'shared' as ChartSource, metricVersion: 2 as 1 | 2, detail: '', minDay: 0, maxDay: 1, startDay: 0, endDay: 1,
         showAll: false, width: 0, height: 0 };
     status.textContent = options.initialStatus;
 
+    const hideTooltip = (): void => { tooltip.hidden = true; };
+    scroll.addEventListener('pointermove', (event: PointerEvent) => {
+        if (event.pointerType === 'touch' || scroll.classList.contains('is-panning')) { hideTooltip(); return; }
+        const target = event.target as Element | null;
+        const mark = target?.closest?.('[data-flow-action]');
+        const title = mark && canvas.contains(mark) ? mark.querySelector('title')?.textContent : null;
+        if (!mark || !title) { hideTooltip(); return; }
+        tooltip.textContent = title;
+        tooltip.style.setProperty('--hover-color', mark.getAttribute('fill') ?? 'var(--accent)');
+        const bounds = scroll.getBoundingClientRect();
+        tooltip.style.left = `${Math.max(10, Math.min(event.clientX - bounds.left + 14, bounds.width - 290))}px`;
+        tooltip.style.top = `${Math.max(10, Math.min(event.clientY - bounds.top + 14, bounds.height - 95))}px`;
+        tooltip.hidden = false;
+    });
+    scroll.addEventListener('pointerleave', hideTooltip);
+    scroll.addEventListener('pointerdown', hideTooltip);
+
     function render(): void {
+        hideTooltip();
         if (!state.rows.length) return;
         const start = state.startDay * DAY;
         const end = (state.endDay + 1) * DAY - 1;
@@ -106,23 +149,28 @@ export function mountFlowChart(host: HTMLElement, options: {
         const total = rows.reduce((sum, row) => sum + row.count, 0);
         const displayDate = (day: number): string =>
             formatDate(new Date(day * DAY), { day: 'numeric', month: 'short', year: 'numeric' });
-        const detail = state.detail ? ` · ${state.detail}` : '';
-        status.textContent = `${formatCount(total)} ${state.source === 'mock' ? 'mock ' : state.source === 'gist' ? 'self-reported ' : ''}${label} · ` +
-            `${displayDate(state.startDay)} → ${displayDate(state.endDay)} · ${formatCount(ranked.length)} models${detail}`;
+        status.textContent = `Showing ${displayDate(state.startDay)} – ${displayDate(state.endDay)} · ` +
+            `${formatCount(total)} ${state.source === 'mock' ? 'mock ' : state.source === 'gist' ? 'self-reported ' : ''}${label}`;
+        detail.hidden = !state.detail;
+        detail.textContent = state.detail;
         visibility.textContent = ranked.length > MAX_VISIBLE_MODELS && !showAll
-            ? `Top ${MAX_VISIBLE_MODELS} + other` : `${formatCount(ranked.length)} ${ranked.length === 1 ? 'model' : 'models'}`;
+            ? `Top ${MAX_VISIBLE_MODELS} models` : `${formatCount(ranked.length)} ${ranked.length === 1 ? 'model' : 'models'}`;
         showModels.hidden = ranked.length <= MAX_VISIBLE_MODELS;
         showModels.textContent = showAll ? 'Show top models' : `Show all ${formatCount(ranked.length)}`;
         showModels.setAttribute('aria-expanded', String(showAll));
         modelLegend.replaceChildren();
+        const names = visible.map((model) => model === 'Other models' ? model : shortModelName(model));
         for (const model of visible) {
             const item = document.createElement('span');
             item.className = 'model-legend-item';
+            item.title = model;
             const swatch = document.createElement('i');
             swatch.className = 'model-legend-swatch';
             swatch.style.backgroundColor = model === 'Other models' ? OTHER_MODEL_COLOR : getModelColor(model);
             const name = document.createElement('span');
-            name.textContent = model === 'Other models' ? model : model.replace('/', ' / ');
+            const short = model === 'Other models' ? model : shortModelName(model);
+            name.textContent = names.filter((label) => label === short).length > 1
+                ? `${short} · ${shortProviderName(model)}` : short;
             item.append(swatch, name);
             modelLegend.append(item);
         }
@@ -154,15 +202,16 @@ export function mountFlowChart(host: HTMLElement, options: {
             colorFor: (model) => model === 'Other models' ? OTHER_MODEL_COLOR : getModelColor(model),
             streamColorFor: (model) => getModelColor(model), formatValue: formatCount,
             formatPeriod: (time, intervalDays) => formatDate(new Date(time), intervalDays === 30
-                ? { month: 'short', year: '2-digit' } : { day: 'numeric', month: 'short' }),
-            formatNodeTitle: ({ period, label: model, value }) =>
-                `${period} · ${model} · ${formatCount(value)} ${adjective} ${label}`,
-            formatLinkTitle: ({ toLabel, toPeriod, value }) =>
-                `${formatCount(value)} ${adjective} ${label} of ${toLabel} in ${toPeriod}`,
-            formatContinuityTitle: ({ label: model, fromPeriod, toPeriod }) =>
-                `Visual continuity: ${model} appears in ${fromPeriod} and ${toPeriod} in ${example ? 'mock' : 'reported'} weekly counts. Weekly counts do not track sessions between periods.`,
-            axisCaption: example ? 'EARLIER ← EXAMPLE MODEL COUNTS → LATER'
-                : state.source === 'personal' ? 'EARLIER ← TIME → LATER' : 'EARLIER ← REPORTED MODEL COUNTS → LATER',
+                ? { month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short' }),
+            formatNodeTitle: ({ period, time, label: model, value }) =>
+                `${titledPeriod(period, time)} · ${model} · ${formatCount(value)} ${adjective} ${label}`,
+            formatLinkTitle: ({ toLabel, toPeriod, time, value }) =>
+                `${formatCount(value)} ${adjective} ${label} of ${toLabel} in ${titledPeriod(toPeriod, time)}`,
+            formatContinuityTitle: ({ label: model, fromPeriod, fromTime, toPeriod, time }) =>
+                `${model} appears in both ${titledPeriod(fromPeriod, fromTime)} and ${titledPeriod(toPeriod, time)}. This does not track individual sessions.`,
+            formatMigrationTitle: ({ fromLabel, toLabel, fromPeriod, toPeriod, value }) =>
+                `Possible shift: ${fromLabel} → ${toLabel}, ${fromPeriod} – ${toPeriod}. Up to ${formatCount(value)} ${label} line up; this is inferred, not tracked.`,
+            axisCaption: 'Time →',
             ariaLabel,
         });
     }
@@ -238,10 +287,13 @@ export function mountFlowChart(host: HTMLElement, options: {
                 }
             }
             state.showAll = false;
-            activityLegend.textContent = data.source === 'mock' ? 'Bright marks = mock activity' : 'Bright marks = reported activity';
-            legendNote.textContent = data.source === 'mock'
-                ? 'Mock counts illustrate the chart; they do not represent uploaded history'
-                : 'Weekly counts omit exact times and cannot show tracked switches';
+            description.textContent = `Model use over time${data.source === 'mock' ? ' (mock example)' : ''}. ` +
+                'Taller bars mean more activity in that period. Hover over a bar for its model and count.';
+            keyCopy.textContent = data.source === 'mock'
+                ? 'Bars show mock activity, not uploaded history. Faint lines join models that appear in adjacent periods; crossing lines suggest possible shifts, not tracked switches.'
+                : 'Bars show reported activity. Faint lines join models that appear in adjacent periods. ' +
+                  'Crossing lines, when shown, suggest possible shifts; weekly totals cannot track individual switches or reveal exact times. ' +
+                  'Other models groups the remaining bars; hover over a stream to see its model.';
             controls.hidden = false;
             timeline.update();
             render();
@@ -249,7 +301,9 @@ export function mountFlowChart(host: HTMLElement, options: {
         setMessage(text): void {
             if (typeof text !== 'string') throw new TypeError('Invalid chart message.');
             state.rows = [];
+            hideTooltip();
             status.textContent = text;
+            detail.hidden = true;
             visibility.textContent = '';
             showModels.hidden = true;
             modelLegend.replaceChildren();

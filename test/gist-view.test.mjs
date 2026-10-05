@@ -76,7 +76,7 @@ test('the browser renders a gist without sending its contents to Model Tides or 
             setAttribute() {},
             addEventListener(type, handler) { this.handlers.set(type, handler); },
         });
-        const items = Object.fromEntries(['app', 'theme-toggle', 'gist-chart', 'chart-heading', 'chart-activity-legend', 'chart-legend-note',
+        const items = Object.fromEntries(['app', 'theme-toggle', 'gist-chart', 'chart-heading', 'chart-description', 'chart-tooltip', 'chart-key-copy', 'chart-detail',
             'chart-status', 'chart-canvas', 'chart-scroll', 'chart-message', 'timeline-controls',
             'range-start', 'range-end', 'range-selection', 'from-date', 'to-date', 'range-min-label',
             'range-max-label', 'zoom-in', 'zoom-out', 'zoom-reset', 'model-visibility', 'model-legend', 'show-models',
@@ -122,10 +122,10 @@ test('the browser renders a gist without sending its contents to Model Tides or 
         assert.doesNotMatch(items.app.innerHTML + items['chart-canvas'].innerHTML, /<img src=x/);
         assert.match(items['chart-canvas'].innerHTML, /&lt;img src=x/, items['chart-status'].textContent);
         assert.match(items['chart-status'].textContent, /1 self-reported earlier model-use events/);
-        assert.match(items['chart-status'].textContent, /across 1 week ·/);
+        assert.match(items['chart-detail'].textContent, /across 1 week ·/);
         assert.equal(items['gist-donate'].hidden, true, 'v1 counts cannot be rebranded as active session-days');
         assert.equal(items['gist-legacy-note'].hidden, false);
-        assert.match(items['chart-status'].textContent, /NewOwner/);
+        assert.match(items['chart-detail'].textContent, /NewOwner/);
         assert.deepEqual(history, [`/gist#NewOwner/${id}`]);
         assert.equal(items['gist-source'].href, `https://gist.github.com/NewOwner/${id}`);
         fixture.version = 2;

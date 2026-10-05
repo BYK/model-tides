@@ -15,16 +15,19 @@ test('a shared report renders an explorable flow chart from public weekly counts
         const id = '0199abcf-22aa-7333-8abc-0123456789ab';
         const element = () => ({ hidden: false, textContent: '', innerHTML: '', value: '', children: [], handlers: new Map(),
             clientWidth: 1200, clientHeight: 600, disabled: false,
-            classList: { add() {}, remove() {}, toggle() {} },
+            classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
             style: { setProperty() {} },
             append(child) { this.children.push(child); },
             replaceChildren(...children) { this.children = children; },
-            setAttribute() {},
-            addEventListener(type, handler) { this.handlers.set(type, handler); },
+            setAttribute() {}, contains() { return true; },
+            addEventListener(type, handler) {
+                const previous = this.handlers.get(type);
+                this.handlers.set(type, previous ? (event) => { previous(event); handler(event); } : handler);
+            },
             getBoundingClientRect() { return { width: 1200, left: 0 }; },
             setPointerCapture() {}, hasPointerCapture() { return true; }, releasePointerCapture() {},
         });
-        const items = Object.fromEntries(['app', 'theme-toggle', 'report-chart', 'chart-heading', 'chart-activity-legend', 'chart-legend-note',
+        const items = Object.fromEntries(['app', 'theme-toggle', 'report-chart', 'chart-heading', 'chart-description', 'chart-tooltip', 'chart-key-copy', 'chart-detail',
             'chart-status', 'chart-canvas', 'chart-scroll',
             'chart-message', 'timeline-controls', 'range-start', 'range-end', 'range-selection',
             'from-date', 'to-date', 'range-min-label', 'range-max-label', 'zoom-in', 'zoom-out', 'zoom-reset',
@@ -89,8 +92,8 @@ test('a shared report renders an explorable flow chart from public weekly counts
         assert.equal(calls[0].options.cache, 'no-store');
         assert.match(items['report-chart'].innerHTML, /class="chart-card flow-chart"/);
         assert.match(items['report-chart'].innerHTML, /class="range-track"/);
-        assert.match(items.app.innerHTML, /class="report-intro"/,
-            'the public report has a dedicated, human-readable introduction');
+        assert.doesNotMatch(items.app.innerHTML, /SHARED MODEL HISTORY|privacy-preserving weekly record/);
+        assert.match(items['report-chart'].innerHTML, /How to read this chart/);
         assert.match(items.app.innerHTML, /data-lucide="copy"/,
             'share actions use the shared icon treatment');
         assert.match(items.app.innerHTML, /<details class="donation-card"/,
@@ -103,7 +106,7 @@ test('a shared report renders an explorable flow chart from public weekly counts
         assert.match(items.app.innerHTML, /npx model-tides@latest key/);
         assert.match(items.app.innerHTML, /npx model-tides@latest contribute/);
         assert.match(items.app.innerHTML, /If you are not the owner.*try yours/i);
-        assert.match(items['report-chart'].innerHTML, /inferred shifts/i);
+        assert.match(items['chart-key-copy'].textContent, /possible shifts.*cannot track individual switches/i);
         assert.equal(items['timeline-controls'].hidden, false);
         assert.equal(items['range-start'].value, String(Date.parse('2026-09-28T00:00:00Z') / 86_400_000),
             'a valid range in the shared link restores the selected start');
