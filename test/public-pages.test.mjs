@@ -30,6 +30,36 @@ test('shared HTML and SVG have matching counts, exact OG links, and escaped mode
     assert.match(await pageForReport(oneWeek, 'https://example.test', shell).text(), /2 model uses over 1 week · Model Tides/);
 });
 
+test('a shared report range limits both its share metadata and rendered image data', async () => {
+    const id = '019ff796-7912-7786-a7bf-a964d071294a';
+    const range = { from: '2026-09-14', to: '2026-09-14' };
+    const report = summarize(id, [
+        { week: '2026-09-07', model: 'openai/gpt-5', count: 9 },
+        { week: '2026-09-14', model: 'anthropic/sonnet', count: 3 },
+        { week: '2026-09-21', model: 'google/gemini', count: 7 },
+    ], 2, range);
+
+    assert.equal(report.total, 3);
+    assert.equal(report.weeks, 1);
+    const page = await pageForReport(report, 'https://example.test', shell, range).text();
+    assert.match(page, new RegExp(`https://example\\.test/u/${id}\\?from=2026-09-14&amp;to=2026-09-14`));
+    assert.match(page, new RegExp(`https://example\\.test/og/${id}\\.png\\?from=2026-09-14&amp;to=2026-09-14`));
+    const image = imageSvg(report);
+    assert.match(image, /3 active session-days/);
+    assert.match(image, /anthropic \/ sonnet/);
+    assert.doesNotMatch(image, /openai \/ gpt-5|google \/ gemini/);
+});
+
+test('a shared report image describes an empty selected range without restoring hidden data', () => {
+    const report = summarize('019ff796-7912-7786-a7bf-a964d071294a', [
+        { week: '2026-09-14', model: 'openai/gpt-5', count: 3 },
+    ], 2, { from: '2026-09-15', to: '2026-09-20' });
+
+    const image = imageSvg(report);
+    assert.match(image, /No activity in this selected window/);
+    assert.doesNotMatch(image, /openai \/ gpt-5/);
+});
+
 test('personal OG image is a weighted, full-width weekly flow with safe labels and model colors', () => {
     const report = summarize('019ff796-7912-7786-a7bf-a964d071294a', [
         { week: '2026-09-07', model: 'openai/gpt-5', count: 2 },

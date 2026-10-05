@@ -1,6 +1,7 @@
 import { setupFlowTimeline } from './flow-timeline';
 import { renderFlowSvg } from './flow-svg/renderer';
 import { getModelColor, OTHER_MODEL_COLOR } from './model-colors';
+import type { ReportRange } from './report-range';
 import { validWeeklyModel, weekStart } from './weekly-snapshot';
 
 const DAY = 86_400_000;
@@ -28,6 +29,8 @@ export function mountFlowChart(host: HTMLElement, options: {
     readonly title: string;
     readonly headingLevel: 1 | 2;
     readonly initialStatus: string;
+    readonly initialRange?: ReportRange | null;
+    readonly onRangeChange?: (range: ReportRange) => void;
 }): { setData: (data: FlowChartData) => void; setMessage: (message: string) => void } {
     host.innerHTML = `
         <section class="chart-card flow-chart" aria-labelledby="chart-heading">
@@ -170,7 +173,13 @@ export function mountFlowChart(host: HTMLElement, options: {
         zoomIn: element<HTMLButtonElement>('#zoom-in'), zoomOut: element<HTMLButtonElement>('#zoom-out'),
         zoomReset: element<HTMLButtonElement>('#zoom-reset'),
     }, () => ({ minDay: state.minDay, maxDay: state.maxDay, startDay: state.startDay, endDay: state.endDay }),
-    (startDay, endDay) => { state.startDay = startDay; state.endDay = endDay; render(); });
+    (startDay, endDay) => {
+        state.startDay = startDay;
+        state.endDay = endDay;
+        render();
+        options.onRangeChange?.({ from: new Date(startDay * DAY).toISOString().slice(0, 10),
+            to: new Date(endDay * DAY).toISOString().slice(0, 10) });
+    });
     showModels.addEventListener('click', () => { state.showAll = !state.showAll; render(); });
 
     function resize(): void {
@@ -213,6 +222,19 @@ export function mountFlowChart(host: HTMLElement, options: {
             state.maxDay = Math.max(state.minDay + 1, ...days);
             state.startDay = state.minDay;
             state.endDay = state.maxDay;
+            const initialRange = options.initialRange;
+            if (initialRange) {
+                const start = Date.parse(`${initialRange.from}T00:00:00Z`) / DAY;
+                const end = Date.parse(`${initialRange.to}T00:00:00Z`) / DAY;
+                if (Number.isFinite(start) && Number.isFinite(end)) {
+                    state.startDay = Math.min(state.maxDay, Math.max(state.minDay, start));
+                    state.endDay = Math.min(state.maxDay, Math.max(state.minDay, end));
+                    if (state.startDay > state.endDay) {
+                        state.startDay = state.minDay;
+                        state.endDay = state.maxDay;
+                    }
+                }
+            }
             state.showAll = false;
             activityLegend.textContent = data.source === 'mock' ? 'Bright marks = mock activity' : 'Bright marks = reported activity';
             legendNote.textContent = data.source === 'mock'
