@@ -1,4 +1,5 @@
 import { setupFlowTimeline } from './flow-timeline';
+import { mountIcons } from './icons';
 import { renderFlowSvg } from './flow-svg/renderer';
 import { getModelColor, OTHER_MODEL_COLOR } from './model-colors';
 import type { ReportRange } from './report-range';
@@ -58,9 +59,9 @@ export function mountFlowChart(host: HTMLElement, options: {
                     <div class="timeline-head-actions">
                         <div class="date-pair"><span id="from-date">—</span><span class="date-arrow">→</span><span id="to-date">—</span></div>
                         <div class="zoom-actions" role="group" aria-label="Timeline zoom controls">
-                            <button class="zoom-button" id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out">−</button>
-                            <button class="zoom-button" id="zoom-in" type="button" aria-label="Zoom in" title="Zoom in">+</button>
-                            <button class="text-button" id="zoom-reset" type="button">Reset</button>
+                            <button class="zoom-button" id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out"><i data-lucide="zoom-out"></i></button>
+                            <button class="zoom-button" id="zoom-in" type="button" aria-label="Zoom in" title="Zoom in"><i data-lucide="zoom-in"></i></button>
+                            <button class="text-button" id="zoom-reset" type="button"><i data-lucide="rotate-ccw"></i><span>Reset</span></button>
                         </div>
                     </div>
                 </div>
@@ -70,6 +71,7 @@ export function mountFlowChart(host: HTMLElement, options: {
                 <div class="range-labels"><span id="range-min-label">—</span><span id="range-max-label">—</span></div>
             </div>
         </section>`;
+    mountIcons(host);
     const element = <T extends HTMLElement>(selector: string): T => host.querySelector<T>(selector)!;
     element<HTMLElement>('#chart-heading').textContent = options.title;
     const status = element<HTMLElement>('#chart-status');

@@ -16,7 +16,8 @@
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",
-    "brotli-wasm": "^3.0.1"
+    "brotli-wasm": "^3.0.1",
+    "lucide": "^1.52.0"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.62.3",
