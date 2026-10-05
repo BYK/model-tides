@@ -42,6 +42,10 @@
     opacity: 0.8;
 }
 
+.flow-svg [data-flow-action]:hover { cursor: help; }
+.flow-svg .continuity-ribbon:hover { opacity: 0.65; }
+.flow-svg .usage-node:hover { stroke: var(--text, white); stroke-width: 1.6; }
+
 .flow-svg .flow-entry {
     opacity: var(--flow-entry-opacity, 0.34);
 }

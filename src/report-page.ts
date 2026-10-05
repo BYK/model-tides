@@ -20,13 +20,9 @@ root.innerHTML = `
             </a>
             <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark theme">Dark theme</button>
         </header>
-        <section class="report-intro" aria-label="About this shared report">
-            <p class="eyebrow">SHARED MODEL HISTORY</p>
-            <p>Explore a privacy-preserving weekly record. The selected window travels with this link.</p>
-        </section>
         <div id="report-chart"></div>
         <section class="report-share" role="group" aria-label="Share this model tide">
-            <div class="report-share-copy"><p class="eyebrow">SHARE THIS VIEW</p>
+            <div class="report-share-copy"><h2>Share this view</h2>
                 <p>Send the current time window as a link or image.</p></div>
             <div class="report-share-actions">
                 <label class="share-nickname" for="share-nickname"><span>Name for your post</span>
@@ -40,7 +36,7 @@ root.innerHTML = `
             <span id="share-status" role="status" aria-live="polite"></span>
         </section>
         <details class="donation-card" aria-labelledby="donation-heading" hidden>
-            <summary><span><span class="eyebrow">OWNER ACTION</span><span class="donation-summary-heading" id="donation-heading">Is this your report?</span></span><i data-lucide="chevron-down"></i></summary>
+            <summary><span class="donation-summary-heading" id="donation-heading">Is this your report?</span><i data-lucide="chevron-down"></i></summary>
             <div class="donation-card-content">
                 <p>Only the report owner can add these counts to the community chart. Run <code>npx model-tides@latest key</code> locally to reveal your saved owner key after confirmation, then enter it below to review every stored week. Or run <code>npx model-tides@latest contribute</code> locally to review and donate from the CLI. The key stays in this tab and never appears in the URL.</p>
                 <p>If you are not the owner of this data, why not <a href="/#home-cta-heading">try yours</a>?</p>
@@ -64,7 +60,7 @@ const initialRange = parseReportRange(new URLSearchParams(window.location.search
 const reportUrl = (): string => `${window.location.origin}${window.location.pathname}${reportRangeSearch(
     parseReportRange(new URLSearchParams(window.location.search)))}`;
 const chart = mountFlowChart(element<HTMLElement>('#report-chart'), {
-    title: 'Your model tide', headingLevel: 1, initialStatus: 'Loading shared weekly counts…', initialRange,
+    title: 'Model use over time', headingLevel: 1, initialStatus: 'Loading shared weekly counts…', initialRange,
     onRangeChange(range): void {
         const search = reportRangeSearch(range);
         window.history.replaceState(null, '', `${window.location.pathname}${search}`);

@@ -351,21 +351,32 @@ test('inferred ribbon and entry amounts balance every target across varied count
         { inferMigrations: true }), /count-only data/);
 });
 
-test('known providers and model families keep stable colors across model versions and routes', () => {
+test('model colors distinguish nearby versions while keeping provider families recognizable', () => {
     const opus = getModelColor('anthropic/claude-opus-4');
     const sonnet = getModelColor('anthropic/claude-3-7-sonnet');
     const haiku = getModelColor('anthropic/claude-3-5-haiku');
-    assert.equal(getModelColor('openrouter/anthropic/claude-opus-4-1'), opus);
+    const distance = (first, second) => Math.hypot(...[1, 3, 5].map((index) =>
+        parseInt(getModelColor(first).slice(index, index + 2), 16) -
+        parseInt(getModelColor(second).slice(index, index + 2), 16)));
+    assert.equal(getModelColor('openrouter/anthropic/claude-opus-4'), opus);
+    assert.notEqual(getModelColor('anthropic/claude-opus-4-6'), getModelColor('anthropic/claude-opus-4-5'));
+    assert.notEqual(getModelColor('anthropic/claude-opus-4-5'), getModelColor('github-copilot/claude-opus-4.5'));
+    assert.notEqual(getModelColor('anthropic/claude-sonnet-4-6'), getModelColor('anthropic/claude-sonnet-4-5-20250929'));
+    for (const [first, second] of [
+        ['anthropic/claude-opus-4-6', 'anthropic/claude-opus-4-5'],
+        ['anthropic/claude-opus-4-5', 'github-copilot/claude-opus-4.5'],
+        ['anthropic/claude-opus-4-6', 'github-copilot/claude-opus-4.5'],
+    ]) assert.ok(distance(first, second) > 45, `${first} and ${second} must be distinguishable in one chart`);
     assert.notEqual(opus, sonnet);
     assert.notEqual(sonnet, haiku);
-    assert.equal(getModelColor('openai/gpt-4o'), getModelColor('openai/gpt-5'));
+    assert.notEqual(getModelColor('openai/gpt-4o'), getModelColor('openai/gpt-5'));
     assert.equal(getModelColor('openai/gpt-4o'), getModelColor('openrouter/openai/gpt-4o'));
     assert.notEqual(getModelColor('openai/gpt-5'), opus);
     assert.notEqual(getModelColor('openai/gpt-5'), getModelColor('openai/gpt-5-codex'));
     assert.notEqual(getModelColor('openai/gpt-5'), getModelColor('openai/o3'));
     assert.notEqual(getModelColor('google/gemini-2.5-pro'), getModelColor('google/gemini-2.5-flash'));
     assert.notEqual(getModelColor('mistral/large'), getModelColor('mistral/codestral'));
-    assert.equal(getModelColor('other-provider/model-1'), getModelColor('other-provider/model-2'));
+    assert.notEqual(getModelColor('other-provider/model-1'), getModelColor('other-provider/model-2'));
     assert.equal(getModelColor('Other models'), OTHER_MODEL_COLOR);
 });
 

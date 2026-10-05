@@ -85,8 +85,8 @@ test('personal OG image is a weighted, full-width weekly flow with safe labels a
     assert.match(svg, /#728b93/);
     assert.match(svg, new RegExp(`class="usage-node"[^>]*fill="${getModelColor('openai/gpt-5')}"`));
     assert.match(svg, /class="usage-node"[^>]*fill="#728b93"[^>]*><title>14 Sept · Other models · 2 self-reported model uses<\/title>/);
-    assert.match(svg, /class="flow-ribbon flow-entry"[^>]*fill="#b65f89"/);
-    assert.match(svg, /class="flow-ribbon flow-entry"[^>]*fill="#5e7293"/);
+    assert.match(svg, new RegExp(`class="flow-ribbon flow-entry"[^>]*fill="${getModelColor('qwen/3')}"`));
+    assert.match(svg, new RegExp(`class="flow-ribbon flow-entry"[^>]*fill="${getModelColor('xai/grok')}"`));
     assert.match(svg, /&lt;&amp;&quot;&#39; model/);
     assert.doesNotMatch(svg, /<&"' model|<script|flow-transition/);
     assert.match(svg, /weekly counts · crossed ribbons = inferred shifts, no tracked switches/i);

@@ -47,7 +47,7 @@ root.innerHTML = `
 mountIcons(root);
 
 const chart = mountFlowChart(root.querySelector<HTMLElement>('#global-chart')!, {
-    title: 'Community model tides', headingLevel: 2, initialStatus: 'Loading shared model counts…',
+    title: 'Community model use', headingLevel: 2, initialStatus: 'Loading shared model counts…',
 });
 void loadGlobalView(chart, true);
 
