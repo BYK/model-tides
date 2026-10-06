@@ -266,15 +266,18 @@ h2 { margin-bottom: 0; font-family: 'Iosevka Etoile', serif; font-size: 22px; fo
 .shared-report-app .chart-heading-row h1 { margin: 0; font-size: clamp(30px, 3.2vw, 46px); }
 .shared-report-app .chart-scroll[hidden] { display: none; }
 .shared-report-app #report-chart { margin-top: 40px; }
-.report-share { display: grid; grid-template-columns: minmax(190px, 0.74fr) minmax(0, 1.26fr); gap: 20px 28px; margin-top: 20px; padding: 20px 23px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 82%, var(--tint)); box-shadow: 0 12px 32px light-dark(#94b9b71c, #04151c2a); }
+.report-share { display: grid; gap: 16px; margin-top: 20px; padding: 20px 23px 12px; border: 1px solid var(--line); border-radius: 12px; background: color-mix(in srgb, var(--panel) 82%, var(--tint)); box-shadow: 0 12px 32px light-dark(#94b9b71c, #04151c2a); }
+.report-share-top { display: grid; grid-template-columns: minmax(190px, 1fr) minmax(260px, auto); align-items: start; gap: 20px 28px; }
 .report-share-copy h2 { margin: 0 0 7px; font-size: 20px; }
 .report-share-copy p:last-child { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.report-share-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 8px; }
-.report-action { min-height: 35px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--accent); font: 700 10px 'Iosevka Aile', sans-serif; text-decoration: none; cursor: pointer; }
+.report-action-tray { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; padding: 12px; border: 1px solid color-mix(in srgb, var(--line) 82%, var(--accent)); border-radius: 9px; background: color-mix(in srgb, var(--panel-raised) 76%, var(--tint)); }
+.report-action-group { display: flex; gap: 9px; }
+.report-action { min-height: 48px; flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--accent); font: 700 11px 'Iosevka Aile', sans-serif; text-decoration: none; cursor: pointer; }
 .report-action:hover { border-color: var(--accent); background: var(--tint); color: var(--ocean); }
-.report-action svg { width: 14px; height: 14px; flex: 0 0 auto; }
-.report-share #share-status { grid-column: 1 / -1; min-height: 16px; color: var(--muted); font-size: 11px; }
-.share-nickname { display: flex; flex: 1 1 100%; align-items: center; justify-content: flex-end; gap: 8px; color: var(--muted); font-size: 10px; }
+.report-action svg { width: 17px; height: 17px; flex: 0 0 auto; }
+.report-share #share-status { min-height: 16px; color: var(--muted); font-size: 11px; }
+.report-share #share-status:empty { display: none; }
+.share-nickname { display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: var(--muted); font-size: 10px; }
 .share-nickname input { width: min(165px, 50vw); padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-raised); color: var(--text); font: inherit; }
 .report-footer { padding: 22px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
 .report-footer p { max-width: 760px; margin-bottom: 9px; }
@@ -308,6 +311,8 @@ h2 { margin-bottom: 0; font-family: 'Iosevka Etoile', serif; font-size: 22px; fo
 
 @media (max-width: 900px) {
     .usage-app { padding-right: 28px; padding-left: 28px; }
+    .report-action-tray { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .report-action-group { display: contents; }
 }
 
 @media (max-width: 600px) {
@@ -344,12 +349,12 @@ h2 { margin-bottom: 0; font-family: 'Iosevka Etoile', serif; font-size: 22px; fo
     .shared-report-app .chart-heading-row h1 { font-size: clamp(28px, 8vw, 38px); }
     .chart-status { padding: 0 15px 14px; }
     .shared-report-app #report-chart { margin-top: 25px; }
-    .report-share { grid-template-columns: 1fr; gap: 15px; margin-top: 16px; padding: 17px; }
-    .report-share-actions { justify-content: flex-start; }
-    .report-share #share-status { grid-column: auto; }
+    .report-share { gap: 15px; margin-top: 16px; padding: 17px 17px 12px; }
+    .report-share-top { grid-template-columns: 1fr; gap: 14px; }
+    .report-action-tray { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; padding: 10px; }
     .share-nickname { justify-content: flex-start; }
     .share-nickname input { flex: 1 1 auto; width: auto; }
-    .report-action { min-height: 40px; flex: 1 1 auto; }
+    .report-action { min-height: 46px; }
     .report-footer { padding-top: 18px; }
     .donation-card summary { padding: 15px 16px; }
     .donation-card-content { padding: 16px; }

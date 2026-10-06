@@ -22,16 +22,22 @@ root.innerHTML = `
         </header>
         <div id="report-chart"></div>
         <section class="report-share" role="group" aria-label="Share this model tide">
-            <div class="report-share-copy"><h2>Share this view</h2>
-                <p>Send the current time window as a link or image.</p></div>
-            <div class="report-share-actions">
+            <div class="report-share-top">
+                <div class="report-share-copy"><h2>Share this view</h2>
+                    <p>Send the current time window as a link or image.</p></div>
                 <label class="share-nickname" for="share-nickname"><span>Name for your post</span>
                     <input id="share-nickname" type="text" maxlength="32" autocomplete="off" placeholder="Optional" /></label>
+            </div>
+            <div class="report-action-tray">
+                <div class="report-action-group report-action-primary">
                 <button class="report-action" id="copy-report-image" type="button"><i data-lucide="copy"></i><span>Copy image</span></button>
                 <button class="report-action" id="download-report-image" type="button"><i data-lucide="download"></i><span>Download PNG</span></button>
                 <button class="report-action" id="native-share-image" type="button" hidden><i data-lucide="share-2"></i><span>Share image</span></button>
+                </div>
+                <div class="report-action-group report-action-social">
                 <a class="report-action" id="share-x" target="_blank" rel="noopener noreferrer"><span>Post on X</span><i data-lucide="external-link"></i></a>
                 <a class="report-action" id="share-bluesky" target="_blank" rel="noopener noreferrer"><span>Post on Bluesky</span><i data-lucide="external-link"></i></a>
+                </div>
             </div>
             <span id="share-status" role="status" aria-live="polite"></span>
         </section>
