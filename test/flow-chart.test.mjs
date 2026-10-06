@@ -49,8 +49,12 @@ test('one chart component renders public weekly data with model, zoom, pan, and 
         assert.match(items['chart-description'].textContent, /model use.*Hover/i);
         assert.match(items['chart-status'].textContent, /Showing .*2026/);
         assert.match(items['chart-canvas'].innerHTML, /<svg/);
-        const mark = { closest() { return this; }, querySelector: () => ({ textContent: '28 active session-days · Opus 4.6 · 14 Sep 2026' }),
-            getAttribute: () => '#9d4262' };
+        assert.doesNotMatch(items['chart-canvas'].innerHTML, /<title\b|\stitle="/,
+            'browser-native SVG titles must not compete with the live tooltip');
+        assert.match(items['chart-canvas'].innerHTML, /data-flow-tooltip="[^"]+" aria-label="[^"]+"/);
+        const mark = { closest() { return this; }, getAttribute(name) {
+            return name === 'data-flow-tooltip' ? '28 active session-days · Opus 4.6 · 14 Sep 2026' : '#9d4262';
+        } };
         items['chart-scroll'].handlers.get('pointermove')({ target: mark, pointerType: 'mouse', clientX: 400, clientY: 200 });
         assert.equal(items['chart-tooltip'].hidden, false);
         assert.match(items['chart-tooltip'].textContent, /Opus 4\.6 · 14 Sep 2026/);

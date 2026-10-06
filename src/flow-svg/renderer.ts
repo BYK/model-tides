@@ -79,6 +79,8 @@ export interface FlowSvgOptions {
     readonly weeklyBuckets?: boolean;
     /** Pair unmatched declines and increases in adjacent buckets. For count-only data, never observed switches. */
     readonly inferMigrations?: boolean;
+    /** Disable delayed browser tooltips when a chart supplies its own hover UI. */
+    readonly nativeTooltips?: boolean;
     readonly axisCaption?: string;
     readonly ariaLabel?: string;
 }
@@ -553,6 +555,12 @@ export function renderFlowSvg(data: readonly FlowDatum[], options: FlowSvgOption
         `Apparent shift: ${context.fromLabel} fell by ${formatValue(context.drop)} and ` +
         `${context.toLabel} rose by ${formatValue(context.rise)} from ${context.fromPeriod} to ${context.toPeriod}. ` +
         `Up to ${formatValue(context.value)} line up; this is not a tracked switch.`);
+    const markTooltip = (title: string): { attributes: string; content: string } => {
+        const escaped = escapeSvg(title);
+        return options.nativeTooltips === false
+            ? { attributes: ` data-flow-tooltip="${escaped}" aria-label="${escaped}"`, content: '' }
+            : { attributes: '', content: `<title>${escaped}</title>` };
+    };
     const crossPeriodPath = (leftEdge: number, rightEdge: number, sourceY: number, targetY: number, streamHeight: number): string => {
         const bend = Math.max(4, (rightEdge - leftEdge) * 0.46);
         return `M ${leftEdge} ${sourceY - streamHeight / 2} C ${leftEdge + bend} ${sourceY - streamHeight / 2}, ${rightEdge - bend} ${targetY - streamHeight / 2}, ${rightEdge} ${targetY - streamHeight / 2} L ${rightEdge} ${targetY + streamHeight / 2} C ${rightEdge - bend} ${targetY + streamHeight / 2}, ${leftEdge + bend} ${sourceY + streamHeight / 2}, ${leftEdge} ${sourceY + streamHeight / 2} Z`;
@@ -667,8 +675,9 @@ export function renderFlowSvg(data: readonly FlowDatum[], options: FlowSvgOption
                 continuityPairMap.set(uniquePairKey(pair), pair);
                 for (const [pairKey, attachedPair] of attachedEntries?.pairs ?? []) continuityPairMap.set(pairKey, attachedPair);
                 const continuityPairs = escapeSvg(JSON.stringify([...continuityPairMap.values()]));
+                const tooltip = markTooltip(title);
                 parts.push(
-                    `<path class="continuity-ribbon" d="${path}" fill="${escapeSvg(getStreamColor(key, node.key))}" opacity=".12" data-flow-action="link" data-flow-pairs="${continuityPairs}"><title>${escapeSvg(title)}</title></path>`
+                    `<path class="continuity-ribbon" d="${path}" fill="${escapeSvg(getStreamColor(key, node.key))}" opacity=".12" data-flow-action="link" data-flow-pairs="${continuityPairs}"${tooltip.attributes}>${tooltip.content}</path>`
                 );
             }
         }
@@ -687,7 +696,8 @@ export function renderFlowSvg(data: readonly FlowDatum[], options: FlowSvgOption
             drop: migration.drop, rise: migration.rise, value: migration.weight,
         });
         const pair = escapeSvg(JSON.stringify([[migration.from, migration.to]]));
-        parts.push(`<path class="flow-ribbon flow-inferred" d="${crossPeriodPath(leftEdge, rightEdge, sourceY, targetY, migration.weight * valueScale)}" fill="${escapeSvg(getStreamColor(migration.to, migration.target.key))}" opacity=".5" data-flow-inferred="true" data-flow-action="link" data-flow-pairs="${pair}"><title>${escapeSvg(title)}</title></path>`);
+        const tooltip = markTooltip(title);
+        parts.push(`<path class="flow-ribbon flow-inferred" d="${crossPeriodPath(leftEdge, rightEdge, sourceY, targetY, migration.weight * valueScale)}" fill="${escapeSvg(getStreamColor(migration.to, migration.target.key))}" opacity=".5" data-flow-inferred="true" data-flow-action="link" data-flow-pairs="${pair}"${tooltip.attributes}>${tooltip.content}</path>`);
     }
 
     const orderedLinks = [...links].sort((a, b) => {
@@ -729,12 +739,13 @@ export function renderFlowSvg(data: readonly FlowDatum[], options: FlowSvgOption
             const streamHeight = entryWeight * valueScale;
             const clickPairs = escapeSvg(JSON.stringify([...link.pairs.values()]));
             const blockTop = centerY - Math.max(3, streamHeight) / 2;
+            const tooltip = markTooltip(title);
             parts.push(
-                `<rect class="flow-entry-block" x="${backtailX - 7}" y="${blockTop}" width="12" height="${Math.max(6, streamHeight)}" rx="3" fill="${color}" opacity=".62" data-flow-action="link" data-flow-pairs="${clickPairs}"><title>${escapeSvg(title)}</title></rect>`
+                `<rect class="flow-entry-block" x="${backtailX - 7}" y="${blockTop}" width="12" height="${Math.max(6, streamHeight)}" rx="3" fill="${color}" opacity=".62" data-flow-action="link" data-flow-pairs="${clickPairs}"${tooltip.attributes}>${tooltip.content}</rect>`
             );
             const path = `M ${backtailX} ${centerY - streamHeight / 2} C ${backtailX + 18} ${centerY - streamHeight / 2}, ${targetX - 22} ${centerY - streamHeight / 2}, ${targetX - nodeWidth / 2} ${centerY - streamHeight / 2} L ${targetX - nodeWidth / 2} ${centerY + streamHeight / 2} C ${targetX - 22} ${centerY + streamHeight / 2}, ${backtailX + 18} ${centerY + streamHeight / 2}, ${backtailX} ${centerY + streamHeight / 2} Z`;
             parts.push(
-                `<path class="flow-ribbon flow-entry" d="${path}" fill="${color}" opacity=".48" data-flow-action="link" data-flow-pairs="${clickPairs}"><title>${escapeSvg(title)}</title></path>`
+                `<path class="flow-ribbon flow-entry" d="${path}" fill="${color}" opacity=".48" data-flow-action="link" data-flow-pairs="${clickPairs}"${tooltip.attributes}>${tooltip.content}</path>`
             );
             continue;
         }
@@ -752,6 +763,7 @@ export function renderFlowSvg(data: readonly FlowDatum[], options: FlowSvgOption
         for (const [key, pair] of attachedEntries?.pairs ?? []) clickPairMap.set(key, pair);
         const clickPairs = escapeSvg(JSON.stringify([...clickPairMap.values()]));
         const linkedTitle = attachedEntries ? `${title}. ${attachedEntries.titles.join('. ')}` : title;
+        const tooltip = markTooltip(linkedTitle);
         const path = link.kind === 'intra-period'
             ? (() => {
                 const edgeX = sourceX + nodeWidth / 2;
@@ -760,7 +772,7 @@ export function renderFlowSvg(data: readonly FlowDatum[], options: FlowSvgOption
             })()
             : crossPeriodPath(leftEdge, rightEdge, sourceY, targetY, streamHeight);
         parts.push(
-            `<path class="flow-ribbon ${link.kind === 'intra-period' ? 'flow-intra' : 'flow-transition'}" d="${path}" fill="${color}" opacity="${link.kind === 'intra-period' ? '.58' : '.30'}" data-flow-action="link" data-flow-pairs="${clickPairs}"><title>${escapeSvg(linkedTitle)}</title></path>`
+            `<path class="flow-ribbon ${link.kind === 'intra-period' ? 'flow-intra' : 'flow-transition'}" d="${path}" fill="${color}" opacity="${link.kind === 'intra-period' ? '.58' : '.30'}" data-flow-action="link" data-flow-pairs="${clickPairs}"${tooltip.attributes}>${tooltip.content}</path>`
         );
     }
 
@@ -779,8 +791,9 @@ export function renderFlowSvg(data: readonly FlowDatum[], options: FlowSvgOption
             };
             const title = formatNodeTitle(context);
             const rawValues = escapeSvg(JSON.stringify([...node.rawKeys]));
+            const tooltip = markTooltip(title);
             parts.push(
-                `<rect class="usage-node" x="${x - nodeWidth / 2}" y="${node.y}" width="${nodeWidth}" height="${Math.max(4, node.height)}" rx="3" fill="${color}" data-flow-action="node" data-flow-values="${rawValues}"><title>${escapeSvg(title)}</title></rect>`
+                `<rect class="usage-node" x="${x - nodeWidth / 2}" y="${node.y}" width="${nodeWidth}" height="${Math.max(4, node.height)}" rx="3" fill="${color}" data-flow-action="node" data-flow-values="${rawValues}"${tooltip.attributes}>${tooltip.content}</rect>`
             );
         }
         if (index === periods.length - 1) break;

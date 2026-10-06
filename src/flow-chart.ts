@@ -119,7 +119,7 @@ export function mountFlowChart(host: HTMLElement, options: {
         if (event.pointerType === 'touch' || scroll.classList.contains('is-panning')) { hideTooltip(); return; }
         const target = event.target as Element | null;
         const mark = target?.closest?.('[data-flow-action]');
-        const title = mark && canvas.contains(mark) ? mark.querySelector('title')?.textContent : null;
+        const title = mark && canvas.contains(mark) ? mark.getAttribute('data-flow-tooltip') : null;
         if (!mark || !title) { hideTooltip(); return; }
         tooltip.textContent = title;
         tooltip.style.setProperty('--hover-color', mark.getAttribute('fill') ?? 'var(--accent)');
@@ -196,7 +196,7 @@ export function mountFlowChart(host: HTMLElement, options: {
         canvas.setAttribute('aria-label', ariaLabel);
         canvas.innerHTML = renderFlowSvg(rows.map(({ time, model, count }) => ({ time, to: model, weight: count })), {
             start, end, width: state.width || scroll.clientWidth || 900, height: state.height || 520,
-            weeklyBuckets: true, inferMigrations: infer,
+            weeklyBuckets: true, inferMigrations: infer, nativeTooltips: false,
             order: visible, displayKey: displayModel,
             displayName: (model) => model === 'Other models' ? model : model.replace('/', ' / '),
             colorFor: (model) => model === 'Other models' ? OTHER_MODEL_COLOR : getModelColor(model),

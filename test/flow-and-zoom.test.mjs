@@ -11,6 +11,24 @@ const chartOptions = { start: january, end: august, width: 1200, height: 640 };
 
 const render = (data, options = {}) => renderFlowSvg(data, { ...chartOptions, ...options });
 
+test('interactive SVG marks use accessible custom tooltip text without browser-native titles', () => {
+    const svg = render([
+        { time: january, to: '<&" model', weight: 2 },
+        { time: february, to: '<&" model', weight: 3 },
+    ], { nativeTooltips: false });
+    assert.doesNotMatch(svg, /<title\b|\stitle="/);
+    const marks = [...svg.matchAll(/<(?:rect|path)\s[^>]*data-flow-action="[^"]+"[^>]*>/g)];
+    assert.ok(marks.length > 2);
+    for (const [mark] of marks) {
+        const tooltip = /data-flow-tooltip="([^"]+)" aria-label="([^"]+)"/.exec(mark);
+        assert.ok(tooltip, 'every interactive mark has tooltip text and an accessible name');
+        assert.equal(tooltip[1], tooltip[2]);
+    }
+    assert.match(svg, /&lt;&amp;&quot; model/);
+    assert.match(render([{ time: january, to: 'model', weight: 1 }]), /<title>/,
+        'standalone and share-image SVGs retain their native descriptions');
+});
+
 function continuityBand(svg) {
     const path = svg.match(/<path class="continuity-ribbon" d="([^"]+)"/);
     assert.ok(path, 'expected a real same-model continuity stream');
