@@ -96,6 +96,14 @@ test('a shared report renders an explorable flow chart from public weekly counts
         assert.match(items['report-chart'].innerHTML, /How to read this chart/);
         assert.match(items.app.innerHTML, /data-lucide="copy"/,
             'share actions use the shared icon treatment');
+        assert.match(items.app.innerHTML, /class="report-share-top"/,
+            'the share introduction and optional post name stay together above the actions');
+        assert.match(items.app.innerHTML, /class="report-action-tray"/,
+            'share actions have a dedicated full-width tray at the bottom of the card');
+        assert.match(items.app.innerHTML, /class="report-action-group report-action-primary"/,
+            'image actions stay grouped as the primary choices');
+        assert.match(items.app.innerHTML, /class="report-action-group report-action-social"/,
+            'outbound social actions stay grouped as secondary choices');
         assert.match(items.app.innerHTML, /<details class="donation-card"/,
             'owner-only contribution controls stay out of the reading flow until requested');
         assert.doesNotMatch(items.app.innerHTML, /View exact weekly counts|<table/);
