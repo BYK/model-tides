@@ -193,7 +193,7 @@ export async function confirmCreatedReport(
         throw new Error('Invalid upload response.');
     }
     if ((!owner && (upload.published !== true || upload.inAggregate !== false ||
-        upload.url !== `https://modeltides.dev/u/${upload.id}`)) ||
+        upload.url !== `${new URL(endpoint).origin}/u/${upload.id}`)) ||
         (owner && (upload.published !== published || upload.inAggregate !== inAggregate))) {
         if (!owner) await fetchImpl(`${endpoint}/${upload.id}`, { method: 'DELETE', headers: {
             Authorization: `Bearer ${upload.token}` },
@@ -203,8 +203,9 @@ export async function confirmCreatedReport(
     if (!owner) {
         try { saveOwner({ id: upload.id, token: upload.token! }); }
         catch {
-            const removed = await fetchImpl(`${endpoint}/${upload.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${upload.token}` } });
-            throw new Error(removed.ok ? 'Could not save your private key; the new contribution was removed.' :
+            const removed = await fetchImpl(`${endpoint}/${upload.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${upload.token}` } })
+                .then((response) => response.ok, () => false);
+            throw new Error(removed ? 'Could not save your private key; the new contribution was removed.' :
                 'Could not save your private key or remove the new contribution.');
         }
     }
