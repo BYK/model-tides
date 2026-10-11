@@ -266,4 +266,8 @@ test('client deleteReport and rotateReport hit the owner endpoints', async () =>
     const failing = async () => new Response('nope', { status: 500 });
     await assert.rejects(() => deleteReport(owner, failing), /Request failed \(HTTP 500\)\./);
     await assert.rejects(() => rotateReport(owner, failing), /Request failed \(HTTP 500\)\./);
+    for (const token of [undefined, 'short', 123]) {
+        const badToken = async () => Response.json({ token });
+        await assert.rejects(() => rotateReport(owner, badToken), /Invalid rotate response\./);
+    }
 });

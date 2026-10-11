@@ -165,7 +165,8 @@ export async function rotateReport(owner: Owner, fetchImpl: FetchImpl = fetch, e
         method: 'POST', headers: { Authorization: `Bearer ${owner.token}` },
     });
     if (!response.ok) throw new Error(`Request failed (HTTP ${response.status}).`);
-    const { token } = await response.json() as { token: string };
+    const { token } = await response.json() as { token: unknown };
+    if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error('Invalid rotate response.');
     return { id: owner.id, token };
 }
 
