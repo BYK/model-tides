@@ -9,7 +9,35 @@
     "url": "git+https://github.com/BYK/model-tides.git"
   },
   "engines": {
-    "node": ">=24"
+    "node": "^22.16.0 || >=24"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./flow-svg": {
+      "types": "./dist/src/flow-svg/renderer.d.ts",
+      "default": "./dist/src/flow-svg/renderer.js"
+    },
+    "./flow-svg.css": "./dist/src/flow-svg/flow-svg.css",
+    "./model-colors": {
+      "types": "./dist/src/model-colors.d.ts",
+      "default": "./dist/src/model-colors.js"
+    },
+    "./daily-usage": {
+      "types": "./dist/src/daily-usage.d.ts",
+      "default": "./dist/src/daily-usage.js"
+    },
+    "./weekly-snapshot": {
+      "types": "./dist/src/weekly-snapshot.d.ts",
+      "default": "./dist/src/weekly-snapshot.js"
+    },
+    "./client": {
+      "types": "./dist/src/client.d.ts",
+      "default": "./dist/src/client.js"
+    },
+    "./package.json": "./package.json"
   },
   "bin": {
     "model-tides": "dist/scripts/contribute.mjs"
