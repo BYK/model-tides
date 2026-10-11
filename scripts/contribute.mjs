@@ -7,23 +7,16 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
-import { brotliCompressSync } from 'node:zlib';
 import { scanCopilotActive, scanHistory, scanHistoryActive, scanOpenCode, scanOpenCodeActive, scanPiActive, scanVSCodeCopilotActive } from './history-scanner.mjs';
 import { parseUsageDocument, MAX_EVENTS, MAX_JSON_BYTES } from '../src/usage-data.ts';
 import { parseDailyDocument } from '../src/daily-usage.ts';
-import { buildWeeklySnapshot, buildActiveWeeklySnapshot, parseOwnedReport } from '../src/weekly-snapshot.ts';
+import { buildWeeklySnapshot, buildActiveWeeklySnapshot } from '../src/weekly-snapshot.ts';
+import { API, confirmCreatedReport, deleteReport, getOwnedReport, publishSnapshot, reportVisibility, rotateReport, setAggregate, setSharing, uploadOSForPlatform } from '../src/client.ts';
 
-const api = 'https://modeltides.dev/api/contributions';
+export { confirmCreatedReport, deleteReport, getOwnedReport, publishSnapshot, reportVisibility, rotateReport, setAggregate, setSharing, uploadOSForPlatform } from '../src/client.ts';
+
+const api = API;
 const credential = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'model-tides', 'contribution.json');
-
-export function uploadOSForPlatform(platform) {
-    switch (platform) {
-        case 'darwin': return 'macos';
-        case 'win32': return 'windows';
-        case 'linux': return 'linux';
-        default: return 'other';
-    }
-}
 
 const regular = (path) => {
     try { return lstatSync(path).isFile(); } catch { return false; }
@@ -229,108 +222,6 @@ export async function exportLocalMetadata(sources, onProgress) {
     return document;
 }
 
-export async function publishSnapshot(snapshot, owner = null, fetchImpl = fetch, endpoint = api,
-    published = null, inAggregate = null, reviewedRevision = null, os = uploadOSForPlatform(process.platform)) {
-    if (owner && (typeof published !== 'boolean' || typeof inAggregate !== 'boolean')) throw new TypeError('Expected report state.');
-    const migrating = !!owner && snapshot.version === 2 && reviewedRevision !== null;
-    if (migrating && (!Number.isSafeInteger(reviewedRevision) || reviewedRevision < 0)) throw new TypeError('Expected reviewed revision.');
-    if (os !== null && !['linux', 'macos', 'windows', 'other'].includes(os)) throw new TypeError('Invalid upload OS.');
-    const body = brotliCompressSync(Buffer.from(JSON.stringify(snapshot)));
-    const response = await fetchImpl(owner ? `${endpoint}/${owner.id}${migrating ? '/migrate-v2' : ''}` :
-        `${endpoint}/${snapshot.version === 2 ? 'personal-v2' : 'personal'}`, {
-        method: owner ? 'PUT' : 'POST',
-        headers: {
-            'Content-Type': 'application/vnd.model-tides.weekly+json',
-            'Content-Encoding': 'br',
-            'X-Model-Tides-Schema': `weekly-v${snapshot.version}`,
-            ...(os === null ? {} : { 'X-Model-Tides-Upload-OS': os }),
-            ...(!owner ? { 'X-Model-Tides-Report': `personal-v${snapshot.version}` } : {}),
-            ...(owner ? { Authorization: `Bearer ${owner.token}`,
-                'X-Model-Tides-Expected-Visibility': published ? 'public' : 'private',
-                'X-Model-Tides-Expected-Aggregate': inAggregate ? 'included' : 'excluded',
-                ...(migrating ? { 'X-Model-Tides-Reviewed-Revision': String(reviewedRevision) } : {}) } : {}),
-        },
-        body,
-    });
-    if (!response.ok) throw new Error(`Upload failed (HTTP ${response.status}). No successful upload was confirmed; your local history is unchanged.`);
-    return response.json();
-}
-
-export async function getOwnedReport(owner, fetchImpl = fetch, endpoint = api) {
-    try {
-        const response = await fetchImpl(`${endpoint}/${owner.id}`, {
-            headers: { Authorization: `Bearer ${owner.token}` }, cache: 'no-store',
-        });
-        if (!response.ok) throw new TypeError('Unavailable report.');
-        return parseOwnedReport(await response.json(), owner.id);
-    } catch {
-        throw new Error('Could not confirm personal report visibility and counts. No sharing change was started.');
-    }
-}
-
-export async function setSharing(owner, published, fetchImpl = fetch, endpoint = api, reviewed = null) {
-    if (published && (!reviewed || !reviewed.snapshot || !Number.isSafeInteger(reviewed.revision) || reviewed.revision < 0)) {
-        throw new Error('Review every stored weekly count before sharing.');
-    }
-    const revision = reviewed?.revision;
-    const response = await fetchImpl(`${endpoint}/${owner.id}/${published ? 'share' : 'unshare'}`, {
-        method: 'POST', headers: { Authorization: `Bearer ${owner.token}`,
-            ...(published ? { 'X-Model-Tides-Reviewed-Revision': String(revision) } : {}) },
-    }).catch(() => null);
-    if (response && !response.ok) throw new Error('Sharing was rejected. Review the current report before retrying.');
-    try {
-        if (!response) throw new TypeError('Sharing response unavailable.');
-        const result = await response.json();
-        if (result.id !== owner.id || result.published !== published ||
-            (published && result.url !== `${new URL(endpoint).origin}/u/${owner.id}`)) {
-            throw new TypeError('Invalid sharing response.');
-        }
-        return result;
-    } catch {
-        const current = await getOwnedReport(owner, fetchImpl, endpoint).catch(() => null);
-        if (!current) throw new Error('Could not confirm personal report visibility. The change may have happened; check before retrying.');
-        if (current.published !== published || (published &&
-            (current.revision !== revision + 1 || JSON.stringify(current.snapshot) !== JSON.stringify(reviewed.snapshot)))) {
-            throw new Error(`The personal report is ${current.published ? 'public' : 'hidden'}. The sharing change was not confirmed; review again before retrying.`);
-        }
-        return { id: owner.id, published, ...(published ? { url: `${new URL(endpoint).origin}/u/${owner.id}` } : {}) };
-    }
-}
-
-export async function reportVisibility(owner, fetchImpl = fetch, endpoint = api) {
-    try {
-        const report = await getOwnedReport(owner, fetchImpl, endpoint);
-        if (report.inAggregate === null) throw new TypeError('Unknown aggregate participation.');
-        return report;
-    } catch {
-        throw new Error('Could not confirm personal report visibility and aggregate participation. No upload was started.');
-    }
-}
-
-export async function setAggregate(owner, contribute, fetchImpl = fetch, endpoint = api, reviewed = null) {
-    if (contribute && (!reviewed?.snapshot || !Number.isSafeInteger(reviewed.revision) || reviewed.revision < 0)) {
-        throw new Error('Review every stored weekly count before contributing.');
-    }
-    const response = await fetchImpl(`${endpoint}/${owner.id}/${contribute ? 'contribute' : 'withdraw'}`, {
-        method: 'POST', headers: { Authorization: `Bearer ${owner.token}`,
-            ...(contribute ? { 'X-Model-Tides-Reviewed-Revision': String(reviewed.revision) } : {}) },
-    }).catch(() => null);
-    if (response && !response.ok) throw new Error('Aggregate change was rejected. Review your current report before retrying.');
-    try {
-        if (!response) throw new TypeError('Aggregate response unavailable.');
-        const result = await response.json();
-        if (result.id !== owner.id || result.inAggregate !== contribute) throw new TypeError('Invalid aggregate response.');
-        return result;
-    } catch {
-        const current = await getOwnedReport(owner, fetchImpl, endpoint).catch(() => null);
-        if (!current || current.inAggregate !== contribute || (contribute &&
-            (current.revision !== reviewed.revision + 1 || JSON.stringify(current.snapshot) !== JSON.stringify(reviewed.snapshot)))) {
-            throw new Error('Could not confirm the aggregate change. Check your report before retrying.');
-        }
-        return { id: owner.id, inAggregate: contribute };
-    }
-}
-
 function loadCredential() {
     if (!existsSync(credential)) return null;
     const stats = lstatSync(credential);
@@ -518,18 +409,14 @@ async function main() {
     if (option === '--delete' || option === '--rotate') {
         if (!owner) throw new Error('No private key file exists for this contribution.');
         if (!await confirm(option === '--delete' ? 'Delete your shared weekly counts?' : 'Rotate your private replacement key?')) return;
-        const response = await fetch(`${api}/${owner.id}${option === '--rotate' ? '/rotate' : ''}`, {
-            method: option === '--rotate' ? 'POST' : 'DELETE',
-            headers: { Authorization: `Bearer ${owner.token}` },
-        });
-        if (!response.ok) throw new Error(`Request failed (HTTP ${response.status}).`);
         if (option === '--delete') {
+            await deleteReport(owner);
             unlinkSync(credential);
             console.log('Your shared weekly counts were deleted.');
         } else {
-            const { token } = await response.json();
+            const rotated = await rotateReport(owner);
             const temporary = `${credential}.new`;
-            writeFileSync(temporary, JSON.stringify({ id: owner.id, token }) + '\n', { mode: 0o600, flag: 'wx' });
+            writeFileSync(temporary, JSON.stringify(rotated) + '\n', { mode: 0o600, flag: 'wx' });
             renameSync(temporary, credential);
             console.log('Your private replacement key was rotated.');
         }
@@ -572,30 +459,10 @@ async function main() {
     })();
     if (choice === 'GIST') return;
     if (choice !== 'YES') return;
-    const result = await publishSnapshot(snapshot, owner, fetch, api, published, report?.inAggregate ?? null,
+    const uploaded = await publishSnapshot(snapshot, owner, fetch, api, published, report?.inAggregate ?? null,
         report?.metricVersion === 1 ? report.revision : null);
-    if (!result || !/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(result.id) ||
-        result.id !== (owner?.id ?? result.id) || typeof result.published !== 'boolean' ||
-        typeof result.inAggregate !== 'boolean' || result.metricVersion !== snapshot.version ||
-        (!owner && (typeof result.token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(result.token)))) {
-        throw new Error('Invalid upload response.');
-    }
-    if ((!owner && (result.published !== true || result.inAggregate !== false ||
-        result.url !== `https://modeltides.dev/u/${result.id}`)) ||
-        (owner && (result.published !== published || result.inAggregate !== report.inAggregate))) {
-        if (!owner) await fetch(`${api}/${result.id}`, { method: 'DELETE', headers: {
-            Authorization: `Bearer ${result.token}` },
-        }).catch(() => {});
-        throw new Error('Upload response did not match the reviewed report state. Check your report before retrying.');
-    }
-    if (!owner) {
-        try { saveNewCredential({ id: result.id, token: result.token }); }
-        catch {
-            const removed = await fetch(`${api}/${result.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${result.token}` } });
-            throw new Error(removed.ok ? 'Could not save your private key; the new contribution was removed.' :
-                'Could not save your private key or remove the new contribution.');
-        }
-    }
+    const result = await confirmCreatedReport(uploaded, snapshot, owner, published, report?.inAggregate ?? null,
+        saveNewCredential);
     console.log(result.published ? `Personal chart: https://modeltides.dev/u/${result.id}` :
         'Your personal report is hidden. Run model-tides share to publish it.');
     console.log(report?.inAggregate ? 'Your earlier aggregate contribution remains active. Run model-tides withdraw to remove it.' :

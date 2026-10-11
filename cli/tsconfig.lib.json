@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "node16",
+    "lib": ["ES2022"],
+    "strict": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "rewriteRelativeImportExtensions": true,
+    "allowImportingTsExtensions": false,
+    "rootDir": "../src",
+    "outDir": "dist/src",
+    "types": ["node"]
+  },
+  "include": [
+    "../src/index.ts",
+    "../src/client.ts",
+    "../src/usage-data.ts",
+    "../src/daily-usage.ts",
+    "../src/weekly-snapshot.ts",
+    "../src/model-colors.ts",
+    "../src/flow-svg/renderer.ts"
+  ]
+}

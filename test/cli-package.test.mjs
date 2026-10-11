@@ -25,7 +25,15 @@ test('npm package includes only the Node scanner, metadata validator, and comman
     assert.deepEqual(names, [
         'LICENSE', 'README.md',
         'dist/scripts/contribute.mjs', 'dist/scripts/history-scanner.mjs',
-        'dist/src/daily-usage.js', 'dist/src/usage-data.js', 'dist/src/weekly-snapshot.js', 'package.json',
+        'dist/src/client.d.ts', 'dist/src/client.js',
+        'dist/src/daily-usage.d.ts', 'dist/src/daily-usage.js',
+        'dist/src/flow-svg/flow-svg.css',
+        'dist/src/flow-svg/renderer.d.ts', 'dist/src/flow-svg/renderer.js',
+        'dist/src/index.d.ts', 'dist/src/index.js',
+        'dist/src/model-colors.d.ts', 'dist/src/model-colors.js',
+        'dist/src/usage-data.d.ts', 'dist/src/usage-data.js',
+        'dist/src/weekly-snapshot.d.ts', 'dist/src/weekly-snapshot.js',
+        'package.json',
     ]);
     assert.equal(packageInfo.name, 'model-tides');
     assert.equal(packageInfo.version, cli.version);
@@ -173,4 +181,89 @@ test('npm package includes only the Node scanner, metadata validator, and comman
         });
         assert.doesNotMatch(readFileSync(copilotExport, 'utf8'), /private|reply|session|selectedModel|timestamp/);
     } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('packed library exports resolve at runtime and typecheck under node16', async () => {
+    const cli = JSON.parse(readFileSync(join(root, 'cli/package.json'), 'utf8'));
+    const directory = mkdtempSync(join(tmpdir(), 'model-tides-lib-'));
+    try {
+        execFileSync('npm', ['pack', './cli', '--pack-destination', directory], { cwd: root, encoding: 'utf8' });
+        const tarball = join(directory, `model-tides-${cli.version}.tgz`);
+        const project = join(directory, 'consumer');
+        mkdirSync(project, { recursive: true });
+        writeFileSync(join(project, 'package.json'), JSON.stringify({ name: 'consumer', private: true, type: 'module' }));
+        execFileSync('npm', ['install', tarball, '--no-audit', '--no-fund', '--loglevel=error'], { cwd: project, encoding: 'utf8' });
+
+        writeFileSync(join(project, 'check.mjs'), `
+const expected = {
+    'model-tides': ['renderFlowSvg', 'getModelColor', 'validWeeklyModel', 'parseDailyDocument',
+        'buildActiveWeeklySnapshot', 'publishSnapshot', 'setSharing', 'deleteReport', 'rotateReport',
+        'getOwnedReport', 'reportVisibility', 'setAggregate', 'uploadOSForPlatform',
+        'confirmCreatedReport', 'API', 'OTHER_MODEL_COLOR', 'WEEKLY_FORMAT', 'MAX_EVENTS', 'parseUsageDocument'],
+    'model-tides/client': ['publishSnapshot', 'getOwnedReport', 'setSharing', 'reportVisibility',
+        'setAggregate', 'confirmCreatedReport', 'deleteReport', 'rotateReport', 'uploadOSForPlatform', 'API'],
+    'model-tides/daily-usage': ['parseDailyDocument', 'DAILY_FORMAT', 'DAILY_VERSION', 'MAX_DAILY_CELLS'],
+    'model-tides/weekly-snapshot': ['parseSnapshot', 'parseOwnedReport', 'buildWeeklySnapshot',
+        'buildActiveWeeklySnapshot', 'validWeeklyModel', 'weekStart', 'WEEKLY_FORMAT', 'WEEKLY_VERSION'],
+    'model-tides/model-colors': ['getModelColor', 'OTHER_MODEL_COLOR'],
+    'model-tides/flow-svg': ['renderFlowSvg', 'FLOW_PALETTE'],
+};
+for (const [spec, names] of Object.entries(expected)) {
+    const mod = await import(spec);
+    for (const name of names) if (!(name in mod)) throw new Error(\`\${spec} is missing \${name}\`);
+}
+const css = import.meta.resolve('model-tides/flow-svg.css');
+if (!css.endsWith('/flow-svg.css')) throw new Error('model-tides/flow-svg.css did not resolve');
+console.log('library imports ok');
+`);
+        const imported = execFileSync(process.execPath, ['check.mjs'], { cwd: project, encoding: 'utf8' });
+        assert.match(imported, /library imports ok/);
+
+        writeFileSync(join(project, 'consumer.ts'), `
+import { parseUsageDocument, renderFlowSvg } from 'model-tides';
+import {
+    API, confirmCreatedReport, deleteReport, getOwnedReport, publishSnapshot, reportVisibility,
+    rotateReport, setAggregate, setSharing, uploadOSForPlatform, type Owner,
+} from 'model-tides/client';
+import { parseDailyDocument } from 'model-tides/daily-usage';
+import { buildActiveWeeklySnapshot, parseOwnedReport, parseSnapshot, weekStart } from 'model-tides/weekly-snapshot';
+import { getModelColor, OTHER_MODEL_COLOR } from 'model-tides/model-colors';
+import { renderFlowSvg as renderFlowSvg2, type FlowDatum } from 'model-tides/flow-svg';
+const owner: Owner = { id: '0199abcf-22aa-7333-8abc-0123456789ab', token: 's'.repeat(43) };
+void [parseUsageDocument, renderFlowSvg, API, confirmCreatedReport, deleteReport, getOwnedReport,
+    publishSnapshot, reportVisibility, rotateReport, setAggregate, setSharing, uploadOSForPlatform,
+    parseDailyDocument, buildActiveWeeklySnapshot, parseOwnedReport, parseSnapshot, weekStart,
+    getModelColor, OTHER_MODEL_COLOR, renderFlowSvg2, owner, [] as FlowDatum[]];
+`);
+        writeFileSync(join(project, 'tsconfig.json'), JSON.stringify({
+            compilerOptions: {
+                module: 'Node16', moduleResolution: 'node16', strict: true,
+                skipLibCheck: true, noEmit: true, types: [],
+            },
+            include: ['consumer.ts'],
+        }));
+        execFileSync(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--noEmit', '-p', join(project, 'tsconfig.json')], {
+            cwd: project, encoding: 'utf8',
+        });
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('client deleteReport and rotateReport hit the owner endpoints', async () => {
+    const { API, deleteReport, rotateReport } = await import('../src/client.ts');
+    const owner = { id: '0199abcf-22aa-7333-8abc-0123456789ab', token: 's'.repeat(43) };
+    const calls = [];
+    const fakeFetch = async (url, options = {}) => {
+        calls.push({ url: String(url), method: options.method, authorization: options.headers?.Authorization });
+        return Response.json({ token: 't'.repeat(43) });
+    };
+    await deleteReport(owner, fakeFetch);
+    const rotated = await rotateReport(owner, fakeFetch);
+    assert.deepEqual(rotated, { id: owner.id, token: 't'.repeat(43) });
+    assert.deepEqual(calls, [
+        { url: `${API}/${owner.id}`, method: 'DELETE', authorization: `Bearer ${owner.token}` },
+        { url: `${API}/${owner.id}/rotate`, method: 'POST', authorization: `Bearer ${owner.token}` },
+    ]);
+    const failing = async () => new Response('nope', { status: 500 });
+    await assert.rejects(() => deleteReport(owner, failing), /Request failed \(HTTP 500\)\./);
+    await assert.rejects(() => rotateReport(owner, failing), /Request failed \(HTTP 500\)\./);
 });

@@ -11,3 +11,12 @@ An upload prints your personal chart link immediately. `unshare` hides it withou
 Before `share` asks for `YES`, it shows every stored week, including weeks retained from earlier uploads. The Worker rejects sharing if counts change after review.
 
 To use an exported daily JSON, run `npx model-tides@latest upload --input model-tides.json`. Run `upload --rotate` or `upload --delete` to manage the key or delete all stored counts. If you prefer a GitHub link for just the weekly counts, run `npx model-tides@latest gist [--input model-tides.json]` with an authenticated `gh` CLI. After `YES`, it creates an unlisted gist: anyone with the URL can read it, and GitHub keeps previous revisions. It never includes exact times or session IDs. Run `npx model-tides@latest help` for all commands. See [the project documentation](https://github.com/BYK/model-tides#share-weekly-counts) for details.
+
+## Library
+
+The published package also ships typed modules (`.d.ts` + `.js`) alongside the CLI:
+
+- `model-tides` — the full surface: usage/daily/weekly documents, model colors, the flow-svg renderer, and the HTTP client.
+- `model-tides/client` — `API`, `uploadOSForPlatform`, `publishSnapshot`, `getOwnedReport`, `reportVisibility`, `setSharing`, `setAggregate`, `confirmCreatedReport`, `deleteReport`, `rotateReport`.
+- `model-tides/daily-usage`, `model-tides/weekly-snapshot` — document parsers and snapshot builders.
+- `model-tides/model-colors`, `model-tides/flow-svg` — `getModelColor`/`OTHER_MODEL_COLOR` and `renderFlowSvg`. `model-tides/flow-svg.css` resolves to the renderer stylesheet.

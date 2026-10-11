@@ -1,5 +1,5 @@
-import type { UsageEvent } from './usage-data';
-import type { DailyUsageDocument } from './daily-usage';
+import type { UsageEvent } from './usage-data.ts';
+import type { DailyUsageDocument } from './daily-usage.ts';
 
 export const WEEKLY_FORMAT = 'model-tides-weekly';
 export const WEEKLY_VERSION = 2;
