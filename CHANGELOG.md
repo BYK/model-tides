@@ -1,4 +1,26 @@
 # Changelog
+## 2.2.0
+
+### Features
+
+- (cli) Publish typed library exports and HTTP client by @devin-ai-integration in [#36](https://github.com/BYK/model-tides/pull/36)
+- (ui) Refine shared report presentation by @MathurAditya724 in [#32](https://github.com/BYK/model-tides/pull/32)
+
+### Fixes
+
+#### Ui
+
+- Use one chart tooltip by @BYK in [#35](https://github.com/BYK/model-tides/pull/35)
+- Clarify model charts by @BYK in [#33](https://github.com/BYK/model-tides/pull/33)
+
+#### Other
+
+- (reports) Share filtered time series by @MathurAditya724 in [#31](https://github.com/BYK/model-tides/pull/31)
+
+### Internal Changes
+
+- (reports) Strengthen share action tray by @MathurAditya724 in [#34](https://github.com/BYK/model-tides/pull/34)
+
 ## 2.1.1
 
 ### Other Changes
